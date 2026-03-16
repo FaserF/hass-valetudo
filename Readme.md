@@ -31,9 +31,9 @@ Select and clean specific rooms directly from Home Assistant.
 ### 🆕 Advanced Augmentations (Optional)
 This integration provides extra sensors and controls for advanced users. **These are disabled by default** to keep your dashboard clean.
 - **Consumables**: Native sensors for Main Brush and Filter endurance.
-- **Extended Configuration**: Voice Volume slider and Carpet Boost switch.
+- **Extended Configuration**: Voice Volume slider, Carpet Boost switch, and **Locate Robot** button.
 - **Network Diagnostics**: Separate sensors for Wi-Fi SSID and Signal Strength.
-- **MAC Address Enrichment**: Automatically adds the robot's MAC address to the device registry for better network integration (e.g., with Fritz!Box or OpenWrt).
+- **Improved Device Mapping**: Automatically normalizes and adds the robot's MAC address to the device registry for better network integration (e.g., with Fritz!Box or OpenWrt).
 
 <img width="700" src="https://github.com/user-attachments/assets/a6379c49-4e53-43c0-b914-1f92bcb61f6e" />
 
