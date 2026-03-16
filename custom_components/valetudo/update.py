@@ -102,6 +102,7 @@ class ValetudoUpdateEntity(UpdateEntity):
     _attr_name = "Firmware"
     _attr_device_class = UpdateDeviceClass.FIRMWARE
     _attr_supported_features = UpdateEntityFeature.INSTALL | UpdateEntityFeature.RELEASE_NOTES
+    _attr_should_poll = True
 
     def __init__(self, hass: HomeAssistant, device: dr.DeviceEntry):
         self.hass = hass
@@ -118,13 +119,19 @@ class ValetudoUpdateEntity(UpdateEntity):
 
     async def async_update(self) -> None:
         """Fetch latest version from GitHub."""
+        _LOGGER.debug(f"Updating Valetudo version for {self.unique_id}")
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(VALETUDO_LATEST_RELEASE_API) as response:
+                async with session.get(VALETUDO_LATEST_RELEASE_API, timeout=aiohttp.ClientTimeout(total=10)) as response:
                     if response.status == 200:
                         data = await response.json()
                         self._attr_latest_version = data.get("tag_name")
+                        if self._attr_latest_version and self._attr_latest_version.startswith("v"):
+                             # Strip leading 'v' if present to match internal versioning if needed
+                             # but Valetudo usually uses YYYY.MM.V
+                             pass
                         self._attr_release_notes = data.get("body")
+                        _LOGGER.debug(f"Fetched latest Valetudo version: {self._attr_latest_version}")
                     else:
                         _LOGGER.warning(f"Failed to fetch latest Valetudo version: {response.status}")
         except Exception as err:
@@ -133,9 +140,9 @@ class ValetudoUpdateEntity(UpdateEntity):
         # Refresh installed version from device registry in case it changed
         dev_reg = dr.async_get(self.hass)
         device = dev_reg.async_get(self._device.id)
-        if device:
+        if device and device.sw_version:
             self._attr_installed_version = device.sw_version
-
+            _LOGGER.debug(f"Updated installed version for {self.unique_id}: {self._attr_installed_version}")
     async def async_install(self, version: str | None, backup: bool, **kwargs: any) -> None:
         """Trigger update via MQTT."""
         # Note: This requires the Valetudo device to listen to these topics.
