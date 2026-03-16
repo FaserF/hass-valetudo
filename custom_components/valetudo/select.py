@@ -133,6 +133,14 @@ class ValetudoRoomSelect(SelectEntity):
         self.hass.async_create_task(self._update_from_map())
 
     async def _update_from_map(self):
+        # Ensure map entity still exists
+        if self.hass.states.get(self._map_entity_id) is None:
+            if self._attr_available:
+                _LOGGER.debug(f"Map entity {self._map_entity_id} not found, marking select as unavailable")
+                self._attr_available = False
+                self.async_write_ha_state()
+            return
+
         try:
             image_obj = await camera.async_get_image(self.hass, self._map_entity_id)
             map_data = await self.hass.async_add_executor_job(
@@ -164,8 +172,16 @@ class ValetudoRoomSelect(SelectEntity):
                     "selected_room_id": self._rooms.get(self._attr_current_option) if self._attr_current_option else None
                 }
                 self.async_write_ha_state()
+        except camera.HomeAssistantError as e:
+            _LOGGER.debug(f"Intermittent error fetching map for {self._map_entity_id}: {e}")
+            if self._attr_available:
+                self._attr_available = False
+                self.async_write_ha_state()
         except Exception as e:
             _LOGGER.error(f"Error updating rooms from map: {e}")
+            if self._attr_available:
+                self._attr_available = False
+                self.async_write_ha_state()
 
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
