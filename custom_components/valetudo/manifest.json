@@ -3,13 +3,14 @@
   "name": "Valetudo",
   "after_dependencies": ["mqtt", "http"],
   "codeowners": [
-    "@hypfer"
+    "@hypfer",
+    "@FaserF"
   ],
   "config_flow": true,
-  "documentation": "https://github.com/Hypfer/hass-valetudo",
+  "documentation": "https://github.com/FaserF/hass-valetudo",
   "integration_type": "hub",
   "iot_class": "local_push",
-  "issue_tracker": "https://github.com/Hypfer/hass-valetudo/issues",
+  "issue_tracker": "https://github.com/FaserF/hass-valetudo/issues",
   "requirements": [],
-  "version": "2026.01.1"
+  "version": "2026.03.1"
 }
