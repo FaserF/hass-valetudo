@@ -22,9 +22,19 @@ Easier setup with smart discovery!
 ### Icons
 <img width="700" src="https://github.com/user-attachments/assets/00131949-896b-45f7-a994-5f8aa664713d" />
 
-### Services & Augmentations
-- **Map Data Extraction**: Easily get map data for your dashboard.
-- **Augmentations**: Provides additional sensors like the approximated Segment the robot is currently in.
+### 🆕 Room Selection
+Select and clean specific rooms directly from Home Assistant.
+- Dynamic "Select" entity populated from Valetudo map data.
+- Built-in `valetudo.clean_room` service for easy automation.
+- Supports multiple iterations per room.
+
+### 🆕 Advanced Augmentations (Optional)
+This integration provides extra sensors and controls for advanced users. **These are disabled by default** to keep your dashboard clean.
+- **Consumables**: Native sensors for Main Brush and Filter endurance.
+- **Extended Configuration**: Voice Volume slider and Carpet Boost switch.
+- **Network Diagnostics**: Separate sensors for Wi-Fi SSID and Signal Strength.
+- **MAC Address Enrichment**: Automatically adds the robot's MAC address to the device registry for better network integration (e.g., with Fritz!Box or OpenWrt).
+
 <img width="700" src="https://github.com/user-attachments/assets/a6379c49-4e53-43c0-b914-1f92bcb61f6e" />
 
 

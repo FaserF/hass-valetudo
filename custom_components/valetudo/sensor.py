@@ -2,7 +2,7 @@ import logging
 import asyncio
 from datetime import timedelta
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorEntity, SensorDeviceClass, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback, Event
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -185,7 +185,13 @@ class ValetudoSensorManager:
         if device_id not in self._sensors:
             self._sensors[device_id] = []
 
-        sensor_classes = [ValetudoEstimatedSegmentSensor]
+        sensor_classes = [
+            ValetudoEstimatedSegmentSensor,
+            ValetudoWifiSSIDSensor,
+            ValetudoWifiSignalSensor,
+            ValetudoBrushConsumableSensor,
+            ValetudoFilterConsumableSensor,
+        ]
 
         new_entities = []
         for Cls in sensor_classes:
@@ -244,6 +250,7 @@ class ValetudoEstimatedSegmentSensor(SensorEntity):
     _attr_name = "Estimated Segment"
     _attr_icon = "mdi:floor-plan"
     _attr_should_poll = False
+    _attr_entity_registry_enabled_default = False
 
     def __init__(self, hass: HomeAssistant, device: dr.DeviceEntry, map_entity_id: str, vacuum_entity_id: str):
         self.hass = hass
@@ -364,3 +371,142 @@ class ValetudoEstimatedSegmentSensor(SensorEntity):
         approximated_segment = approximate_segment(unpacked_pixels)
 
         return approximated_segment
+
+
+class ValetudoWifiSSIDSensor(SensorEntity):
+    """Sensor for the Wi-Fi SSID."""
+    _attr_has_entity_name = True
+    _attr_name = "Wi-Fi SSID"
+    _attr_icon = "mdi:wifi"
+    _attr_should_poll = False
+    _attr_entity_registry_enabled_default = False
+    _attr_entity_category = er.EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, device: dr.DeviceEntry, map_entity_id: str, vacuum_entity_id: str):
+        self.hass = hass
+        self._vacuum_entity_id = vacuum_entity_id
+        self._attr_unique_id = f"{device.id}_wifi_ssid"
+        self._attr_device_info = {
+            "connections": device.connections,
+            "identifiers": device.identifiers,
+        }
+        self._attr_native_value = None
+
+    async def async_added_to_hass(self) -> None:
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass, [self._vacuum_entity_id], self._handle_vacuum_update
+            )
+        )
+        state_obj = self.hass.states.get(self._vacuum_entity_id)
+        if state_obj:
+            self._update_from_state(state_obj)
+
+    @callback
+    def _handle_vacuum_update(self, event):
+        new_state = event.data.get("new_state")
+        if new_state:
+            self._update_from_state(new_state)
+
+    def _update_from_state(self, state):
+        ssid = state.attributes.get("ssid")
+        if ssid != self._attr_native_value:
+            self._attr_native_value = ssid
+            self.async_write_ha_state()
+
+
+class ValetudoWifiSignalSensor(SensorEntity):
+    """Sensor for the Wi-Fi signal strength (RSSI)."""
+    _attr_has_entity_name = True
+    _attr_name = "Wi-Fi Signal Strength"
+    _attr_icon = "mdi:wifi"
+    _attr_should_poll = False
+    _attr_entity_registry_enabled_default = False
+    _attr_entity_category = er.EntityCategory.DIAGNOSTIC
+    _attr_native_unit_of_measurement = "dBm"
+    _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, hass: HomeAssistant, device: dr.DeviceEntry, map_entity_id: str, vacuum_entity_id: str):
+        self.hass = hass
+        self._vacuum_entity_id = vacuum_entity_id
+        self._attr_unique_id = f"{device.id}_wifi_signal"
+        self._attr_device_info = {
+            "connections": device.connections,
+            "identifiers": device.identifiers,
+        }
+        self._attr_native_value = None
+
+    async def async_added_to_hass(self) -> None:
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass, [self._vacuum_entity_id], self._handle_vacuum_update
+            )
+        )
+        state_obj = self.hass.states.get(self._vacuum_entity_id)
+        if state_obj:
+            self._update_from_state(state_obj)
+
+    @callback
+    def _handle_vacuum_update(self, event):
+        new_state = event.data.get("new_state")
+        if new_state:
+            self._update_from_state(new_state)
+
+    def _update_from_state(self, state):
+        rssi = state.attributes.get("rssi")
+        if rssi is not None and rssi != self._attr_native_value:
+            self._attr_native_value = float(rssi)
+            self.async_write_ha_state()
+
+
+class ValetudoConsumableSensor(SensorEntity):
+    """Base sensor for Valetudo consumables."""
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    _attr_entity_registry_enabled_default = False
+    _attr_entity_category = er.EntityCategory.DIAGNOSTIC
+    _attr_native_unit_of_measurement = "%"
+
+    def __init__(self, hass: HomeAssistant, device: dr.DeviceEntry, map_entity_id: str, vacuum_entity_id: str, attr_key: str, name: str, icon: str):
+        self.hass = hass
+        self._vacuum_entity_id = vacuum_entity_id
+        self._attr_key = attr_key
+        self._attr_name = name
+        self._attr_icon = icon
+        self._attr_unique_id = f"{device.id}_{attr_key}"
+        self._attr_device_info = {
+            "connections": device.connections,
+            "identifiers": device.identifiers,
+        }
+        self._attr_native_value = None
+
+    async def async_added_to_hass(self) -> None:
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass, [self._vacuum_entity_id], self._handle_vacuum_update
+            )
+        )
+        state_obj = self.hass.states.get(self._vacuum_entity_id)
+        if state_obj:
+            self._update_from_state(state_obj)
+
+    @callback
+    def _handle_vacuum_update(self, event):
+        new_state = event.data.get("new_state")
+        if new_state:
+            self._update_from_state(new_state)
+
+    def _update_from_state(self, state):
+        value = state.attributes.get(self._attr_key)
+        if value != self._attr_native_value:
+            self._attr_native_value = value
+            self.async_write_ha_state()
+
+class ValetudoBrushConsumableSensor(ValetudoConsumableSensor):
+    def __init__(self, hass: HomeAssistant, device: dr.DeviceEntry, map_entity_id: str, vacuum_entity_id: str):
+        super().__init__(hass, device, map_entity_id, vacuum_entity_id, "main_brush", "Main Brush Life", "mdi:brush")
+
+class ValetudoFilterConsumableSensor(ValetudoConsumableSensor):
+    def __init__(self, hass: HomeAssistant, device: dr.DeviceEntry, map_entity_id: str, vacuum_entity_id: str):
+        super().__init__(hass, device, map_entity_id, vacuum_entity_id, "filter", "Filter Life", "mdi:air-filter")

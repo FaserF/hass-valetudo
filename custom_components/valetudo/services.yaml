@@ -20,3 +20,38 @@ extract_map_data:
         entity:
           domain: camera
           integration: mqtt
+
+clean_room:
+  name: Clean Room
+  description: Start sequence for cleaning a specific room.
+  fields:
+    device_id:
+      name: Device
+      description: Select the ValetudoRobot device.
+      required: true
+      selector:
+        device:
+          filter:
+            - manufacturer: Valetudo
+    room_id:
+      name: Room ID
+      description: Internal ID of the room (segment).
+      required: false
+      selector:
+        text:
+    room_name:
+      name: Room Name
+      description: Name of the room as shown in Room Selection.
+      required: false
+      selector:
+        text:
+    iterations:
+      name: Iterations
+      description: Number of times to clean the room.
+      default: 1
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
