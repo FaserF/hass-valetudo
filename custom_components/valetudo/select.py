@@ -32,7 +32,6 @@ async def async_setup_entry(
     if DOMAIN not in hass.data:
         hass.data[DOMAIN] = {}
     if config_entry.entry_id not in hass.data[DOMAIN]:
-         # This shouldn't happen if sensor.py already ran, but just in case
          pass
 
 class ValetudoSelectManager:
@@ -107,10 +106,10 @@ class ValetudoRoomSelect(SelectEntity):
             "connections": device.connections,
             "identifiers": device.identifiers,
         }
-        self._attr_current_option = None
-        self._attr_options = []
+        self._attr_current_option: str | None = None
+        self._attr_options: list[str] = []
         self._rooms: dict[str, str] = {} # Name -> ID
-        self._attr_extra_state_attributes = {}
+        self._attr_extra_state_attributes: dict[str, Any] = {}
         self._attr_available = False
         
         # Get identifier for MQTT
@@ -169,7 +168,7 @@ class ValetudoRoomSelect(SelectEntity):
                 # Expose IDs in attributes for automations
                 self._attr_extra_state_attributes = {
                     "room_ids": self._rooms,
-                    "selected_room_id": self._rooms.get(self._attr_current_option) if self._attr_current_option else None
+                    "selected_room_id": self._rooms.get(self._attr_current_option or "")
                 }
                 self.async_write_ha_state()
         except camera.HomeAssistantError as e:

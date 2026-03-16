@@ -39,7 +39,6 @@ async def async_setup_entry(
     manager = ValetudoSensorManager(hass, async_add_entities, config_entry.entry_id)
     await manager.async_setup()
 
-    # Store manager reference
     if DOMAIN not in hass.data:
         hass.data[DOMAIN] = {}
     hass.data[DOMAIN][config_entry.entry_id] = manager
@@ -58,7 +57,6 @@ class ValetudoSensorManager:
         self.async_add_entities = async_add_entities
         self.config_entry_id = config_entry_id
 
-        # Map device_id -> List of sensor entities
         self._sensors: dict[str, list[SensorEntity]] = {}
         self._listeners = []
 
@@ -159,7 +157,6 @@ class ValetudoSensorManager:
         ent_reg = er.async_get(self.hass)
         device_entities = er.async_entries_for_device(ent_reg, device_id)
 
-        # 1. Try to resolve MAC address and enrich registry if not already present
         vacuum_entity = next(
             (e for e in device_entities if e.domain == "vacuum"),
             None
@@ -168,7 +165,6 @@ class ValetudoSensorManager:
             if not any(conn[0] == dr.CONNECTION_NETWORK_MAC for conn in device.connections):
                 self.hass.async_create_task(self._async_enrich_registry(device_id, vacuum_entity.entity_id))
 
-        # 2. Setup augmentation sensors
         map_entity = next(
             (e for e in device_entities
              if e.domain == "camera" and e.entity_id.endswith("_map_data")),
@@ -263,12 +259,11 @@ class ValetudoEstimatedSegmentSensor(SensorEntity):
             "connections": device.connections,
             "identifiers": device.identifiers,
         }
-        self._attr_native_value = None
+        self._attr_native_value: str | float | None = None
         self._attr_extra_state_attributes = {}
 
         self._attr_available = False
 
-        self._last_nonce = None
         self._process_lock = asyncio.Lock()
         self._timer_unsub = None
 

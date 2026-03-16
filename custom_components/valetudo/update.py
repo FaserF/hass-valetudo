@@ -1,5 +1,6 @@
 import logging
 import asyncio
+from typing import Any
 from datetime import timedelta
 import aiohttp
 
@@ -127,8 +128,6 @@ class ValetudoUpdateEntity(UpdateEntity):
                         data = await response.json()
                         self._attr_latest_version = data.get("tag_name")
                         if self._attr_latest_version and self._attr_latest_version.startswith("v"):
-                             # Strip leading 'v' if present to match internal versioning if needed
-                             # but Valetudo usually uses YYYY.MM.V
                              pass
                         self._attr_release_notes = data.get("body")
                         _LOGGER.debug(f"Fetched latest Valetudo version: {self._attr_latest_version}")
@@ -143,7 +142,7 @@ class ValetudoUpdateEntity(UpdateEntity):
         if device and device.sw_version:
             self._attr_installed_version = device.sw_version
             _LOGGER.debug(f"Updated installed version for {self.unique_id}: {self._attr_installed_version}")
-    async def async_install(self, version: str | None, backup: bool, **kwargs: any) -> None:
+    async def async_install(self, version: str | None, backup: bool, **kwargs: Any) -> None:
         """Trigger update via MQTT."""
         # We find the identifier to build the topic prefix
         mqtt_id = None

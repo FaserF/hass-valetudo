@@ -102,9 +102,7 @@ class ValetudoVolumeNumber(NumberEntity):
             "connections": device.connections,
             "identifiers": device.identifiers,
         }
-        self._attr_native_value = None
-        
-        # Get identifier for MQTT
+        self._attr_native_value: float | None = None
         self._mqtt_identifier = None
         for identifier in device.identifiers:
             if identifier[0] == "mqtt":
@@ -128,7 +126,6 @@ class ValetudoVolumeNumber(NumberEntity):
             self._update_from_state(new_state)
 
     def _update_from_state(self, state):
-        # Valetudo often exports volume as 'volume' or 'speaker_volume' attribute
         val = state.attributes.get("volume") or state.attributes.get("speaker_volume")
         if val is not None and val != self._attr_native_value:
             self._attr_native_value = float(val)

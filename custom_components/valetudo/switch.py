@@ -73,10 +73,8 @@ class ValetudoSwitchManager:
         if not vacuum_entity:
             return
 
-        if device_id not in self._switches:
-            self._switches[device_id] = []
+        self._switches[device_id] = []
 
-        # Add Carpet Boost switch
         if not any(isinstance(s, ValetudoCarpetBoostSwitch) for s in self._switches[device_id]):
             _LOGGER.debug(f"Creating ValetudoCarpetBoostSwitch for device {device.name}")
             sw = ValetudoCarpetBoostSwitch(self.hass, device, vacuum_entity.entity_id)
@@ -99,9 +97,7 @@ class ValetudoCarpetBoostSwitch(SwitchEntity):
             "connections": device.connections,
             "identifiers": device.identifiers,
         }
-        self._attr_is_on = None
-        
-        # Get identifier for MQTT
+        self._attr_is_on: bool | None = None
         self._mqtt_identifier = None
         for identifier in device.identifiers:
             if identifier[0] == "mqtt":
