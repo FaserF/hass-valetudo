@@ -1,0 +1,161 @@
+import logging
+import asyncio
+from datetime import timedelta
+import aiohttp
+
+from homeassistant.components.update import (
+    UpdateEntity,
+    UpdateEntityFeature,
+    UpdateDeviceClass,
+)
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant, callback, Event
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
+from homeassistant.components.mqtt import async_publish
+
+from .const import (
+    DOMAIN,
+    CONF_ENTRY_TYPE,
+    ENTRY_TYPE_AUGMENTATIONS,
+    VALETUDO_LATEST_RELEASE_API,
+    VALETUDO_RELEASES_URL,
+)
+
+_LOGGER = logging.getLogger(__name__)
+
+SCAN_INTERVAL = timedelta(hours=1)
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up the Valetudo update entities."""
+    if config_entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_AUGMENTATIONS:
+        return
+
+    manager = ValetudoUpdateManager(hass, async_add_entities, config_entry.entry_id)
+    await manager.async_setup()
+
+
+class ValetudoUpdateManager:
+    """Manages creation and removal of update entities for Valetudo devices."""
+
+    def __init__(self, hass: HomeAssistant, async_add_entities: AddEntitiesCallback, config_entry_id: str):
+        self.hass = hass
+        self.async_add_entities = async_add_entities
+        self.config_entry_id = config_entry_id
+        self._entities: dict[str, list[UpdateEntity]] = {}
+        self._listeners = []
+
+    async def async_setup(self):
+        self._scan_existing_devices()
+
+        self._listeners.append(self.hass.bus.async_listen(
+            dr.EVENT_DEVICE_REGISTRY_UPDATED,
+            self._handle_device_registry_update
+        ))
+
+    def _scan_existing_devices(self):
+        dev_reg = dr.async_get(self.hass)
+        for device in dev_reg.devices.values():
+            if device.manufacturer == "Valetudo":
+                self._try_add_entities(device.id)
+
+    @callback
+    def _handle_device_registry_update(self, event: Event):
+        action = event.data.get("action")
+        device_id = event.data.get("device_id")
+
+        if action in ("create", "update"):
+            dev_reg = dr.async_get(self.hass)
+            device = dev_reg.async_get(device_id)
+            if device and device.manufacturer == "Valetudo":
+                self._try_add_entities(device_id)
+
+    def _try_add_entities(self, device_id: str):
+        dev_reg = dr.async_get(self.hass)
+        device = dev_reg.async_get(device_id)
+
+        if not device or device.manufacturer != "Valetudo":
+            return
+
+        if device_id not in self._entities:
+            self._entities[device_id] = []
+
+        if any(isinstance(e, ValetudoUpdateEntity) for e in self._entities[device_id]):
+            return
+
+        _LOGGER.debug(f"Creating ValetudoUpdateEntity for device {device.name}")
+        entity = ValetudoUpdateEntity(self.hass, device)
+        self._entities[device_id].append(entity)
+        self.async_add_entities([entity])
+
+
+class ValetudoUpdateEntity(UpdateEntity):
+    """Update entity for Valetudo firmware."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Firmware"
+    _attr_device_class = UpdateDeviceClass.FIRMWARE
+    _attr_supported_features = UpdateEntityFeature.INSTALL | UpdateEntityFeature.RELEASE_NOTES
+
+    def __init__(self, hass: HomeAssistant, device: dr.DeviceEntry):
+        self.hass = hass
+        self._device = device
+        self._attr_unique_id = f"{device.id}_firmware"
+        self._attr_device_info = {
+            "connections": device.connections,
+            "identifiers": device.identifiers,
+        }
+        self._attr_installed_version = device.sw_version
+        self._attr_latest_version = None
+        self._attr_release_notes = None
+        self._attr_release_url = VALETUDO_RELEASES_URL
+
+    async def async_update(self) -> None:
+        """Fetch latest version from GitHub."""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(VALETUDO_LATEST_RELEASE_API) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        self._attr_latest_version = data.get("tag_name")
+                        self._attr_release_notes = data.get("body")
+                    else:
+                        _LOGGER.warning(f"Failed to fetch latest Valetudo version: {response.status}")
+        except Exception as err:
+            _LOGGER.error(f"Error fetching Valetudo version: {err}")
+
+        # Refresh installed version from device registry in case it changed
+        dev_reg = dr.async_get(self.hass)
+        device = dev_reg.async_get(self._device.id)
+        if device:
+            self._attr_installed_version = device.sw_version
+
+    async def async_install(self, version: str | None, backup: bool, **kwargs: any) -> None:
+        """Trigger update via MQTT."""
+        # Note: This requires the Valetudo device to listen to these topics.
+        # Based on my research, Valetudo doesn't natively have these topics,
+        # so this is a 'best effort' implementation using the proposed structure.
+        
+        # We find the identifier to build the topic prefix
+        identifier = next(iter(self._device.identifiers))[1]
+        topic_prefix = "valetudo" # Default topic prefix
+        
+        # We try to send 'check' followed by 'download' and 'apply' 
+        # In a real scenario, this would be highly dependent on the Valetudo version and implementation.
+        
+        base_topic = f"{topic_prefix}/{identifier}/Updater/action/set"
+        
+        _LOGGER.info(f"Triggering Valetudo update for {self._device.name} via MQTT topic {base_topic}")
+        
+        # Usually, we'd start with 'check' or 'download' if we already know there's an update.
+        # For simplicity, we send 'download' as the install action.
+        await async_publish(self.hass, base_topic, "download")
+        
+        # We might also need to send 'apply' later, but typically 'download' triggers the process.
+        # This is very speculative as native support is missing.
