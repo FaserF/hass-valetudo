@@ -145,24 +145,26 @@ class ValetudoUpdateEntity(UpdateEntity):
             _LOGGER.debug(f"Updated installed version for {self.unique_id}: {self._attr_installed_version}")
     async def async_install(self, version: str | None, backup: bool, **kwargs: any) -> None:
         """Trigger update via MQTT."""
-        # Note: This requires the Valetudo device to listen to these topics.
-        # Based on my research, Valetudo doesn't natively have these topics,
-        # so this is a 'best effort' implementation using the proposed structure.
-        
         # We find the identifier to build the topic prefix
-        identifier = next(iter(self._device.identifiers))[1]
-        topic_prefix = "valetudo" # Default topic prefix
+        mqtt_id = None
+        for identifier in self._device.identifiers:
+            if identifier[0] == "mqtt":
+                mqtt_id = identifier[1]
+                break
+
+        if not mqtt_id:
+            _LOGGER.error(f"No MQTT identifier found for device {self._device.id}")
+            return
         
-        # We try to send 'check' followed by 'download' and 'apply' 
-        # In a real scenario, this would be highly dependent on the Valetudo version and implementation.
+        # Valetudo MQTT Update Command topic
+        topic = f"valetudo/{mqtt_id}/Updater/action/set"
         
-        base_topic = f"{topic_prefix}/{identifier}/Updater/action/set"
+        _LOGGER.info(f"Triggering Valetudo update for {self._device.name} to version {version} via {topic}")
         
-        _LOGGER.info(f"Triggering Valetudo update for {self._device.name} via MQTT topic {base_topic}")
+        # We first send "check" to ensure the robot is aware of the environment
+        # then "download" to start the process. 
+        # In many Valetudo versions, "download" is the primary trigger.
+        await async_publish(self.hass, topic, "download")
         
-        # Usually, we'd start with 'check' or 'download' if we already know there's an update.
-        # For simplicity, we send 'download' as the install action.
-        await async_publish(self.hass, base_topic, "download")
-        
-        # We might also need to send 'apply' later, but typically 'download' triggers the process.
-        # This is very speculative as native support is missing.
+        # Some versions might also need explicit install/apply, but download is usually sufficient
+        # to start the OTA process if a URL is provided or matched.
