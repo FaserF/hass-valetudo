@@ -15,11 +15,17 @@
       "augmentations": {
         "title": "Setup Augmentations",
         "description": "This will augment all ValetudoRobots with e.g. the approximated Segment the Robot is currently in."
+      },
+      "confirm_discovery": {
+        "title": "Confirm Valetudo Discovery",
+        "description": "Do you want to set up Valetudo Augmentations for the discovered device?"
       }
     },
     "abort": {
       "icons_instance_exists": "Valetudo icons are already set up. A refresh might be necessary for them to become visible.",
-      "augmentations_instance_exists": "Augmentations are already set up."
+      "augmentations_instance_exists": "Augmentations are already set up.",
+      "not_valetudo": "The discovered device is not a Valetudo robot.",
+      "invalid_discovery_info": "Received invalid discovery information."
     }
   }
 }
