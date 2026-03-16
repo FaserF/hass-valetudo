@@ -224,12 +224,13 @@ class ValetudoSensorManager:
         # Attempt to find MAC in device tracker states
         mac = await self._async_find_mac_by_ip(ip_address)
         if mac:
+            formatted_mac = dr.format_mac(mac)
             dev_reg = dr.async_get(self.hass)
             dev_reg.async_update_device(
                 device_id,
-                merge_connections={(dr.CONNECTION_NETWORK_MAC, mac.lower())}
+                merge_connections={(dr.CONNECTION_NETWORK_MAC, formatted_mac)}
             )
-            _LOGGER.info(f"Enriched Valetudo device {device_id} with MAC {mac}")
+            _LOGGER.info(f"Enriched Valetudo device {device_id} with MAC {formatted_mac}")
 
     async def _async_find_mac_by_ip(self, ip: str) -> str | None:
         """Search for a MAC address associated with the given IP in HA states."""
