@@ -15,6 +15,7 @@ from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
 from .const import DOMAIN, CONF_ENTRY_TYPE, ENTRY_TYPE_AUGMENTATIONS
 from .map_utils import extract_map_from_image, unpack_pixels, approximate_segment
+from .device_utils import async_enrich_registry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -163,7 +164,7 @@ class ValetudoSensorManager:
         )
         if vacuum_entity:
             if not any(conn[0] == dr.CONNECTION_NETWORK_MAC for conn in device.connections):
-                self.hass.async_create_task(self._async_enrich_registry(device_id, vacuum_entity.entity_id))
+                self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
 
         map_entity = next(
             (e for e in device_entities
@@ -202,44 +203,6 @@ class ValetudoSensorManager:
         if new_entities:
             self.async_add_entities(new_entities)
 
-    async def _async_enrich_registry(self, device_id: str, vacuum_entity_id: str):
-        """Try to find MAC address for the robot and add it to the device registry."""
-        state = self.hass.states.get(vacuum_entity_id)
-        if not state:
-            return
-
-        ip_address = state.attributes.get("ip")
-        if not ip_address:
-            # Try other common attributes
-            ip_address = state.attributes.get("ip_address") or state.attributes.get("local_ip")
-
-        if not ip_address:
-            _LOGGER.debug(f"Could not find IP for vacuum {vacuum_entity_id}")
-            return
-
-        # Attempt to find MAC in device tracker states
-        mac = await self._async_find_mac_by_ip(ip_address)
-        if mac:
-            formatted_mac = dr.format_mac(mac)
-            dev_reg = dr.async_get(self.hass)
-            dev_reg.async_update_device(
-                device_id,
-                merge_connections={(dr.CONNECTION_NETWORK_MAC, formatted_mac)}
-            )
-            _LOGGER.info(f"Enriched Valetudo device {device_id} with MAC {formatted_mac}")
-
-    async def _async_find_mac_by_ip(self, ip: str) -> str | None:
-        """Search for a MAC address associated with the given IP in HA states."""
-        # Search in device_tracker entities
-        for state in self.hass.states.async_all("device_tracker"):
-            if state.attributes.get("ip") == ip or state.attributes.get("ip_address") == ip:
-                mac = state.attributes.get("mac")
-                if mac:
-                    return str(mac)
-
-        # Fallback: check other devices in registry that might have this IP as an identifier
-        # (Some integrations might use IP as identifier)
-        return None
 
 
 class ValetudoEstimatedSegmentSensor(SensorEntity):

@@ -16,6 +16,9 @@ except ImportError:
 
 
 async def async_setup_icons(hass: HomeAssistant) -> None:
+    if f"{DOMAIN}_icons_registered" in hass.data:
+        return
+
     static_paths = [
         StaticPathConfig(
             f'/assets/{DOMAIN}/icons.js',
@@ -25,5 +28,6 @@ async def async_setup_icons(hass: HomeAssistant) -> None:
     ]
 
     await hass.http.async_register_static_paths(static_paths)
+    hass.data[f"{DOMAIN}_icons_registered"] = True
     
     add_extra_js_url(hass, f"/assets/{DOMAIN}/icons.js?v={VERSION}")

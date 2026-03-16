@@ -11,6 +11,7 @@ from homeassistant.components import mqtt
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
 from .const import DOMAIN, CONF_ENTRY_TYPE, ENTRY_TYPE_AUGMENTATIONS
+from .device_utils import async_enrich_registry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -80,6 +81,10 @@ class ValetudoSwitchManager:
             sw = ValetudoCarpetBoostSwitch(self.hass, device, vacuum_entity.entity_id)
             self._switches[device_id].append(sw)
             self.async_add_entities([sw])
+
+            # Try to enrich with MAC if missing
+            if not any(conn[0] == dr.CONNECTION_NETWORK_MAC for conn in device.connections):
+                self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
 
 class ValetudoCarpetBoostSwitch(SwitchEntity):
     _attr_has_entity_name = True

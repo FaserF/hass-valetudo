@@ -23,6 +23,7 @@ from .const import (
     VALETUDO_LATEST_RELEASE_API,
     VALETUDO_RELEASES_URL,
 )
+from .device_utils import async_enrich_registry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -95,6 +96,15 @@ class ValetudoUpdateManager:
         self._entities[device_id].append(entity)
         self.async_add_entities([entity])
 
+        # Try to enrich with MAC if missing
+        if not any(conn[0] == dr.CONNECTION_NETWORK_MAC for conn in device.connections):
+            # We need to find the vacuum entity ID for this device
+            ent_reg = er.async_get(self.hass)
+            device_entities = er.async_entries_for_device(ent_reg, device_id)
+            vacuum_entity = next((e for e in device_entities if e.domain == "vacuum"), None)
+            if vacuum_entity:
+                self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
+
 
 class ValetudoUpdateEntity(UpdateEntity):
     """Update entity for Valetudo firmware."""
@@ -128,13 +138,19 @@ class ValetudoUpdateEntity(UpdateEntity):
                         data = await response.json()
                         self._attr_latest_version = data.get("tag_name")
                         if self._attr_latest_version and self._attr_latest_version.startswith("v"):
+                             # Some Valetudo versions might report 2026.02.0 vs v2026.02.0
                              pass
                         self._attr_release_notes = data.get("body")
                         _LOGGER.debug(f"Fetched latest Valetudo version: {self._attr_latest_version}")
                     else:
                         _LOGGER.warning(f"Failed to fetch latest Valetudo version: {response.status}")
+                        # Fallback for when API fails or rate limited
+                        if not self._attr_latest_version:
+                            self._attr_latest_version = "unknown"
         except Exception as err:
             _LOGGER.error(f"Error fetching Valetudo version: {err}")
+            if not self._attr_latest_version:
+                self._attr_latest_version = "unknown"
 
         # Refresh installed version from device registry in case it changed
         dev_reg = dr.async_get(self.hass)
