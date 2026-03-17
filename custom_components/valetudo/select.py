@@ -28,6 +28,8 @@ async def async_setup_entry(
     manager = ValetudoSelectManager(hass, async_add_entities, config_entry.entry_id)
     await manager.async_setup()
 
+    config_entry.async_on_unload(manager.async_unload)
+
     # Store manager reference if not already there
     if DOMAIN not in hass.data:
         hass.data[DOMAIN] = {}
@@ -49,6 +51,19 @@ class ValetudoSelectManager:
             self._handle_device_registry_update
         ))
 
+        self._listeners.append(self.hass.bus.async_listen(
+            er.EVENT_ENTITY_REGISTRY_UPDATED,
+            self._handle_entity_registry_update
+        ))
+
+    @callback
+    def async_unload(self):
+        """Unregister listeners."""
+        for unsub in self._listeners:
+            unsub()
+        self._listeners.clear()
+        self._selects.clear()
+
     @callback
     def _handle_device_registry_update(self, event: Event):
         action = event.data.get("action")
@@ -58,6 +73,18 @@ class ValetudoSelectManager:
             device = dev_reg.async_get(device_id)
             if device and device.manufacturer == "Valetudo":
                 self._try_add_selects(device_id)
+
+    @callback
+    def _handle_entity_registry_update(self, event: Event):
+        """Handle entity creation to catch when the base vacuum is added."""
+        action = event.data.get("action")
+        entity_id = event.data.get("entity_id")
+        ent_reg = er.async_get(self.hass)
+
+        if action == "create":
+            entry = ent_reg.async_get(entity_id)
+            if entry and entry.device_id and entry.domain == "vacuum":
+                self._try_add_selects(entry.device_id)
 
     def _scan_existing_devices(self):
         dev_reg = dr.async_get(self.hass)

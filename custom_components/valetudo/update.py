@@ -1,8 +1,10 @@
 import logging
+from typing import Any
 import asyncio
 from typing import Any
 from datetime import timedelta
 import aiohttp
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from homeassistant.components.update import (
     UpdateEntity,
@@ -42,6 +44,8 @@ async def async_setup_entry(
     manager = ValetudoUpdateManager(hass, async_add_entities, config_entry.entry_id)
     await manager.async_setup()
 
+    config_entry.async_on_unload(manager.async_unload)
+
 
 class ValetudoUpdateManager:
     """Manages creation and removal of update entities for Valetudo devices."""
@@ -61,6 +65,19 @@ class ValetudoUpdateManager:
             self._handle_device_registry_update
         ))
 
+        self._listeners.append(self.hass.bus.async_listen(
+            er.EVENT_ENTITY_REGISTRY_UPDATED,
+            self._handle_entity_registry_update
+        ))
+
+    @callback
+    def async_unload(self):
+        """Unregister listeners."""
+        for unsub in self._listeners:
+            unsub()
+        self._listeners.clear()
+        self._entities.clear()
+
     def _scan_existing_devices(self):
         dev_reg = dr.async_get(self.hass)
         for device in dev_reg.devices.values():
@@ -78,11 +95,30 @@ class ValetudoUpdateManager:
             if device and device.manufacturer == "Valetudo":
                 self._try_add_entities(device_id)
 
+    @callback
+    def _handle_entity_registry_update(self, event: Event):
+        """Handle entity creation to catch when the base vacuum is added."""
+        action = event.data.get("action")
+        entity_id = event.data.get("entity_id")
+        ent_reg = er.async_get(self.hass)
+
+        if action == "create":
+            entry = ent_reg.async_get(entity_id)
+            if entry and entry.device_id and entry.domain == "vacuum":
+                self._try_add_entities(entry.device_id)
+
     def _try_add_entities(self, device_id: str):
         dev_reg = dr.async_get(self.hass)
         device = dev_reg.async_get(device_id)
 
         if not device or device.manufacturer != "Valetudo":
+            return
+
+        # Ensure the base vacuum entity exists before adding our augmentation
+        ent_reg = er.async_get(self.hass)
+        device_entities = er.async_entries_for_device(ent_reg, device_id)
+        vacuum_entity = next((e for e in device_entities if e.domain == "vacuum"), None)
+        if not vacuum_entity:
             return
 
         if device_id not in self._entities:
@@ -124,7 +160,7 @@ class ValetudoUpdateEntity(UpdateEntity):
             "identifiers": device.identifiers,
         }
         self._attr_installed_version = device.sw_version
-        self._attr_latest_version = None
+        self._attr_latest_version: str | None = None
         self._attr_release_notes = None
         self._attr_release_url = VALETUDO_RELEASES_URL
 
@@ -132,21 +168,26 @@ class ValetudoUpdateEntity(UpdateEntity):
         """Fetch latest version from GitHub."""
         _LOGGER.debug(f"Updating Valetudo version for {self.unique_id}")
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(VALETUDO_LATEST_RELEASE_API, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        self._attr_latest_version = data.get("tag_name")
-                        if self._attr_latest_version and self._attr_latest_version.startswith("v"):
-                             # Some Valetudo versions might report 2026.02.0 vs v2026.02.0
-                             pass
-                        self._attr_release_notes = data.get("body")
-                        _LOGGER.debug(f"Fetched latest Valetudo version: {self._attr_latest_version}")
-                    else:
-                        _LOGGER.warning(f"Failed to fetch latest Valetudo version: {response.status}")
-                        # Fallback for when API fails or rate limited
-                        if not self._attr_latest_version:
-                            self._attr_latest_version = "unknown"
+            session = async_get_clientsession(self.hass)
+            headers = {"User-Agent": "HomeAssistant-Valetudo-Integration"}
+            async with session.get(
+                VALETUDO_LATEST_RELEASE_API, 
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    self._attr_latest_version = data.get("tag_name")
+                    if self._attr_latest_version and self._attr_latest_version.startswith("v"):
+                         # Some Valetudo versions might report 2026.02.0 vs v2026.02.0
+                         pass
+                    self._attr_release_notes = data.get("body")
+                    _LOGGER.debug(f"Fetched latest Valetudo version: {self._attr_latest_version}")
+                else:
+                    _LOGGER.warning(f"Failed to fetch latest Valetudo version: {response.status}")
+                    # Fallback for when API fails or rate limited
+                    if not self._attr_latest_version:
+                        self._attr_latest_version = "unknown"
         except Exception as err:
             _LOGGER.error(f"Error fetching Valetudo version: {err}")
             if not self._attr_latest_version:
