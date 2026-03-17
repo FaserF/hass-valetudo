@@ -127,12 +127,12 @@ class ValetudoSelectManager:
                 
             # Also listen for first state change to retry enrichment when IP/MAC might appear
             if not any(isinstance(l, tuple) and l[1] == vacuum_entity.entity_id for l in self._listeners):
-                 unsub = async_track_state_change_event(
-                     self.hass, 
-                     [vacuum_entity.entity_id], 
-                     lambda event: self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
-                 )
-                 self._listeners.append((unsub, vacuum_entity.entity_id))
+                unsub = async_track_state_change_event(
+                    self.hass, 
+                    [vacuum_entity.entity_id], 
+                    lambda event: self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
+                )
+                self._listeners.append((unsub, vacuum_entity.entity_id))
 
 class ValetudoRoomSelect(SelectEntity, RestoreEntity):
     _attr_has_entity_name = True

@@ -34,7 +34,7 @@ async def async_enrich_registry(hass: HomeAssistant, device_id: str, vacuum_enti
                 mac = await _async_find_mac_by_ip(hass, ip_address)
 
     if mac:
-        formatted_mac = dr.format_mac(mac)
+        formatted_mac = dr.format_mac(mac).lower()
         # Check if already present to avoid redundant updates
         if not any(conn[1] == formatted_mac for conn in device.connections):
             dev_reg.async_update_device(
