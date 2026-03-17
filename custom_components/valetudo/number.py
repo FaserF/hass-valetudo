@@ -11,6 +11,7 @@ from homeassistant.components import mqtt
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
 from .const import DOMAIN, CONF_ENTRY_TYPE, ENTRY_TYPE_AUGMENTATIONS
+from .device_utils import async_enrich_registry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -108,6 +109,18 @@ class ValetudoNumberManager:
             num = ValetudoVolumeNumber(self.hass, device, vacuum_entity.entity_id)
             self._numbers[device_id].append(num)
             self.async_add_entities([num])
+
+            # Try enrichment immediately
+            self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
+            
+            # Also listen for first state change to retry enrichment when IP/MAC might appear
+            if not any(isinstance(l, tuple) and l[1] == vacuum_entity.entity_id for l in self._listeners):
+                 unsub = async_track_state_change_event(
+                     self.hass, 
+                     [vacuum_entity.entity_id], 
+                     lambda event: self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
+                 )
+                 self._listeners.append((unsub, vacuum_entity.entity_id))
 
 class ValetudoVolumeNumber(NumberEntity):
     _attr_has_entity_name = True

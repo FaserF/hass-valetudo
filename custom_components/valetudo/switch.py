@@ -103,15 +103,22 @@ class ValetudoSwitchManager:
 
         self._switches[device_id] = []
 
-        if not any(isinstance(s, ValetudoCarpetBoostSwitch) for s in self._switches[device_id]):
-            _LOGGER.debug(f"Creating ValetudoCarpetBoostSwitch for device {device.name}")
-            sw = ValetudoCarpetBoostSwitch(self.hass, device, vacuum_entity.entity_id)
-            self._switches[device_id].append(sw)
-            self.async_add_entities([sw])
-
-            # Try to enrich with MAC if missing
-            if not any(conn[0] == dr.CONNECTION_NETWORK_MAC for conn in device.connections):
-                self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
+        vacuum_entity = next(
+            (e for e in device_entities if e.domain == "vacuum"),
+            None
+        )
+        if vacuum_entity:
+            # Try enrichment immediately
+            self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
+            
+            # Also listen for first state change to retry enrichment when IP/MAC might appear
+            if (None, vacuum_entity.entity_id) not in self._listeners: # Check if we are already listening
+                 unsub = async_track_state_change_event(
+                     self.hass, 
+                     [vacuum_entity.entity_id], 
+                     lambda event: self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
+                 )
+                 self._listeners.append((unsub, vacuum_entity.entity_id))
 
 class ValetudoCarpetBoostSwitch(SwitchEntity):
     _attr_has_entity_name = True

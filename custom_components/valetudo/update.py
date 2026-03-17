@@ -132,15 +132,18 @@ class ValetudoUpdateManager:
         self._entities[device_id].append(entity)
         self.async_add_entities([entity])
 
-        # Try to enrich with MAC if missing
-        if not any(conn[0] == dr.CONNECTION_NETWORK_MAC for conn in device.connections):
-            # We need to find the vacuum entity ID for this device
-            ent_reg = er.async_get(self.hass)
-            device_entities = er.async_entries_for_device(ent_reg, device_id)
-            vacuum_entity = next((e for e in device_entities if e.domain == "vacuum"), None)
-            if vacuum_entity:
-                _LOGGER.debug(f"Enriching device {device_id} with MAC info")
-                self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
+        # Try enrichment immediately
+        self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
+        
+        # Also listen for first state change to retry enrichment when IP/MAC might appear
+        # Store as a tuple (unsub_function, entity_id) to easily check if already listening
+        if (None, vacuum_entity.entity_id) not in self._listeners: # Check if we are already listening for this entity
+             unsub = async_track_state_change_event(
+                 self.hass, 
+                 [vacuum_entity.entity_id], 
+                 lambda event: self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
+             )
+             self._listeners.append((unsub, vacuum_entity.entity_id))
 
 
 class ValetudoUpdateEntity(UpdateEntity, RestoreEntity):

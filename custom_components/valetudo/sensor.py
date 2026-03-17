@@ -163,8 +163,17 @@ class ValetudoSensorManager:
             None
         )
         if vacuum_entity:
-            if not any(conn[0] == dr.CONNECTION_NETWORK_MAC for conn in device.connections):
-                self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
+            # Try enrichment immediately
+            self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
+            
+            # Also listen for first state change to retry enrichment when IP/MAC might appear
+            if vacuum_entity.entity_id not in [l[1] for l in self._listeners if isinstance(l, tuple)]:
+                 unsub = async_track_state_change_event(
+                     self.hass, 
+                     [vacuum_entity.entity_id], 
+                     lambda event: self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
+                 )
+                 self._listeners.append(unsub)
 
         map_entity = next(
             (e for e in device_entities

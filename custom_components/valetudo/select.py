@@ -14,6 +14,7 @@ from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 import json
 
 from .const import DOMAIN, CONF_ENTRY_TYPE, ENTRY_TYPE_AUGMENTATIONS
+from .device_utils import async_enrich_registry
 from .map_utils import extract_map_from_image
 
 _LOGGER = logging.getLogger(__name__)
@@ -103,14 +104,15 @@ class ValetudoSelectManager:
         ent_reg = er.async_get(self.hass)
         device_entities = er.async_entries_for_device(ent_reg, device_id)
 
-        map_entity = next(
-            (e for e in device_entities
-             if e.domain == "camera" and e.entity_id.endswith("_map_data")),
-            None
-        )
-        if not map_entity:
+        # Find the vacuum entity and map entity for this device
+        vacuum_entity = next((e for e in device_entities if e.domain == "vacuum"), None)
+        map_entity = next((e for e in device_entities if e.domain == "camera" and "map" in e.entity_id), None)
+
+        if not vacuum_entity or not map_entity:
+            _LOGGER.debug(f"Skipping select creation for device {device.name}: missing vacuum or map entity.")
             return
 
+        # Initialize _selects entry if it doesn't exist
         if device_id not in self._selects:
             self._selects[device_id] = []
 
@@ -119,6 +121,18 @@ class ValetudoSelectManager:
             select = ValetudoRoomSelect(self.hass, device, map_entity.entity_id)
             self._selects[device_id].append(select)
             self.async_add_entities([select])
+
+            # Try enrichment immediately
+            self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
+                
+            # Also listen for first state change to retry enrichment when IP/MAC might appear
+            if not any(isinstance(l, tuple) and l[1] == vacuum_entity.entity_id for l in self._listeners):
+                 unsub = async_track_state_change_event(
+                     self.hass, 
+                     [vacuum_entity.entity_id], 
+                     lambda event: self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
+                 )
+                 self._listeners.append((unsub, vacuum_entity.entity_id))
 
 class ValetudoRoomSelect(SelectEntity, RestoreEntity):
     _attr_has_entity_name = True
