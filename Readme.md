@@ -44,7 +44,7 @@ This integration provides extra sensors and controls for advanced users. **These
 
 To install this integration using [HACS](https://www.hacs.xyz/):
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.homeassistant.io/badges/hacs_repository.svg)](https://my.homeassistant.io/redirect/hacs_repository/?repository=https://github.com/FaserF/hass-valetudo&category=Integration)
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.homeassistant.io/badges/hacs_repository.svg)](https://my.homeassistant.io/redirect/hacs_repository/?repository=https%3A%2F%2Fgithub.com%2FFaserF%2Fhass-valetudo&category=Integration)
 
 1.  Open **HACS** in Home Assistant.
 2.  Click on **Integrations**.
