@@ -1,5 +1,4 @@
 import logging
-from typing import Any
 import asyncio
 from typing import Any
 from datetime import timedelta
@@ -16,6 +15,7 @@ from homeassistant.core import HomeAssistant, callback, Event
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.components.mqtt import async_publish
 
 from .const import (
@@ -139,10 +139,11 @@ class ValetudoUpdateManager:
             device_entities = er.async_entries_for_device(ent_reg, device_id)
             vacuum_entity = next((e for e in device_entities if e.domain == "vacuum"), None)
             if vacuum_entity:
+                _LOGGER.debug(f"Enriching device {device_id} with MAC info")
                 self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
 
 
-class ValetudoUpdateEntity(UpdateEntity):
+class ValetudoUpdateEntity(UpdateEntity, RestoreEntity):
     """Update entity for Valetudo firmware."""
 
     _attr_has_entity_name = True
@@ -164,6 +165,23 @@ class ValetudoUpdateEntity(UpdateEntity):
         self._attr_release_notes = None
         self._attr_release_url = VALETUDO_RELEASES_URL
 
+    async def async_added_to_hass(self) -> None:
+        """Handle entity which will be added."""
+        await super().async_added_to_hass()
+
+        # Restore last state
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            if not self._attr_installed_version:
+                self._attr_installed_version = last_state.attributes.get("installed_version")
+            self._attr_latest_version = last_state.attributes.get("latest_version")
+            self._attr_release_notes = last_state.attributes.get("release_notes")
+            _LOGGER.debug(f"Restored state for {self.unique_id}: {self._attr_installed_version} -> {self._attr_latest_version}")
+
+        # Trigger an immediate update to fetch latest version and refresh installed
+        _LOGGER.debug(f"Entity {self.unique_id} added to Hass, triggering initial update")
+        self.hass.async_create_task(self.async_update())
+
     async def async_update(self) -> None:
         """Fetch latest version from GitHub."""
         _LOGGER.debug(f"Updating Valetudo version for {self.unique_id}")
@@ -171,34 +189,43 @@ class ValetudoUpdateEntity(UpdateEntity):
             session = async_get_clientsession(self.hass)
             headers = {"User-Agent": "HomeAssistant-Valetudo-Integration"}
             async with session.get(
-                VALETUDO_LATEST_RELEASE_API, 
+                VALETUDO_LATEST_RELEASE_API,
                 headers=headers,
                 timeout=aiohttp.ClientTimeout(total=10)
             ) as response:
                 if response.status == 200:
                     data = await response.json()
-                    self._attr_latest_version = data.get("tag_name")
-                    if self._attr_latest_version and self._attr_latest_version.startswith("v"):
-                         # Some Valetudo versions might report 2026.02.0 vs v2026.02.0
-                         pass
-                    self._attr_release_notes = data.get("body")
-                    _LOGGER.debug(f"Fetched latest Valetudo version: {self._attr_latest_version}")
+                    new_version = data.get("tag_name")
+                    if new_version:
+                        self._attr_latest_version = new_version
+                        if new_version.startswith("v"):
+                             # Consistent handling of 'v' prefix if needed
+                             pass
+                        self._attr_release_notes = data.get("body")
+                        _LOGGER.debug(f"Successfully fetched Valetudo version: {self._attr_latest_version}")
+                    else:
+                        _LOGGER.warning("GitHub API returned 200 but no tag_name found")
                 else:
-                    _LOGGER.warning(f"Failed to fetch latest Valetudo version: {response.status}")
-                    # Fallback for when API fails or rate limited
-                    if not self._attr_latest_version:
-                        self._attr_latest_version = "unknown"
+                    _LOGGER.warning(f"Failed to fetch Valetudo version from GitHub: {response.status}")
         except Exception as err:
-            _LOGGER.error(f"Error fetching Valetudo version: {err}")
-            if not self._attr_latest_version:
-                self._attr_latest_version = "unknown"
+            _LOGGER.error(f"Unexpected error fetching Valetudo version: {err}", exc_info=True)
 
         # Refresh installed version from device registry in case it changed
         dev_reg = dr.async_get(self.hass)
         device = dev_reg.async_get(self._device.id)
-        if device and device.sw_version:
-            self._attr_installed_version = device.sw_version
-            _LOGGER.debug(f"Updated installed version for {self.unique_id}: {self._attr_installed_version}")
+        if device:
+            if device.sw_version:
+                if self._attr_installed_version != device.sw_version:
+                    _LOGGER.info(f"Refreshed installed version for {self.unique_id}: {device.sw_version}")
+                    self._attr_installed_version = device.sw_version
+            else:
+                _LOGGER.debug(f"Device {self._device.id} has no sw_version in registry")
+        else:
+            _LOGGER.warning(f"Device {self._device.id} not found in registry during version refresh")
+
+        # Log final state for debugging
+        _LOGGER.debug(f"Final state for {self.unique_id}: installed={self._attr_installed_version}, latest={self._attr_latest_version}")
+        self.async_write_ha_state()
     async def async_install(self, version: str | None, backup: bool, **kwargs: Any) -> None:
         """Trigger update via MQTT."""
         # We find the identifier to build the topic prefix
@@ -211,16 +238,10 @@ class ValetudoUpdateEntity(UpdateEntity):
         if not mqtt_id:
             _LOGGER.error(f"No MQTT identifier found for device {self._device.id}")
             return
-        
+
         # Valetudo MQTT Update Command topic
         topic = f"valetudo/{mqtt_id}/Updater/action/set"
-        
+
         _LOGGER.info(f"Triggering Valetudo update for {self._device.name} to version {version} via {topic}")
-        
-        # We first send "check" to ensure the robot is aware of the environment
-        # then "download" to start the process. 
-        # In many Valetudo versions, "download" is the primary trigger.
+
         await async_publish(self.hass, topic, "download")
-        
-        # Some versions might also need explicit install/apply, but download is usually sufficient
-        # to start the OTA process if a URL is provided or matched.

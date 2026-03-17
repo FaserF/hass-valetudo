@@ -1,5 +1,6 @@
 import logging
 import asyncio
+from typing import Any
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback, Event
@@ -7,6 +8,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.components import camera, mqtt
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 import json
@@ -118,7 +120,7 @@ class ValetudoSelectManager:
             self._selects[device_id].append(select)
             self.async_add_entities([select])
 
-class ValetudoRoomSelect(SelectEntity):
+class ValetudoRoomSelect(SelectEntity, RestoreEntity):
     _attr_has_entity_name = True
     _attr_name = "Room Selection"
     _attr_icon = "mdi:floor-plan"
@@ -147,6 +149,22 @@ class ValetudoRoomSelect(SelectEntity):
                 break
 
     async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        
+        # Restore last state
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+             self._attr_options = last_state.attributes.get("options", [])
+             self._attr_current_option = last_state.state
+             self._rooms = last_state.attributes.get("room_ids", {})
+             self._attr_extra_state_attributes = {
+                 "room_ids": self._rooms,
+                 "selected_room_id": self._rooms.get(self._attr_current_option or "")
+             }
+             if self._attr_options:
+                 self._attr_available = True
+                 _LOGGER.debug(f"Restored {len(self._attr_options)} rooms for {self.unique_id}")
+
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass, [self._map_entity_id], self._handle_map_update
