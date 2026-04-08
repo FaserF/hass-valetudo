@@ -1,16 +1,15 @@
 import logging
-import json
+from typing import Any
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback, Event
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.event import async_track_state_change_event, EventStateChangedData
 from homeassistant.components import mqtt
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
-from .const import DOMAIN, CONF_ENTRY_TYPE, ENTRY_TYPE_AUGMENTATIONS
+from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_AUGMENTATIONS
 from .device_utils import async_enrich_registry
 
 _LOGGER = logging.getLogger(__name__)
@@ -35,7 +34,7 @@ class ValetudoSwitchManager:
         self.async_add_entities = async_add_entities
         self.config_entry_id = config_entry_id
         self._switches: dict[str, list[SwitchEntity]] = {}
-        self._listeners = []
+        self._listeners: list[Any] = []
 
     async def async_setup(self):
         self._scan_existing_devices()
@@ -64,7 +63,7 @@ class ValetudoSwitchManager:
     def _handle_device_registry_update(self, event: Event):
         action = event.data.get("action")
         device_id = event.data.get("device_id")
-        if action in ("create", "update"):
+        if action in ("create", "update") and isinstance(device_id, str):
             dev_reg = dr.async_get(self.hass)
             device = dev_reg.async_get(device_id)
             if device and device.manufacturer == "Valetudo":
@@ -77,7 +76,7 @@ class ValetudoSwitchManager:
         entity_id = event.data.get("entity_id")
         ent_reg = er.async_get(self.hass)
 
-        if action == "create":
+        if action == "create" and isinstance(entity_id, str):
             entry = ent_reg.async_get(entity_id)
             if entry and entry.device_id and entry.domain == "vacuum":
                 self._try_add_switches(entry.device_id)
@@ -120,8 +119,8 @@ class ValetudoSwitchManager:
         self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
             
         # Also listen for first state change to retry enrichment when IP/MAC might appear
-        if (None, vacuum_entity.entity_id) not in self._listeners: # Check if we are already listening
-             async def _async_handle_enrich(event: Event) -> None:
+        if not any(isinstance(listener, tuple) and listener[1] == vacuum_entity.entity_id for listener in self._listeners):
+             async def _async_handle_enrich(event: Event[EventStateChangedData]) -> None:
                  await async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id)
 
              unsub = async_track_state_change_event(

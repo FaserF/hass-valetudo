@@ -30,7 +30,7 @@ async def async_register_extract_map_service(hass: HomeAssistant):
 
         target_entity_id = None
 
-        if input_device_id:
+        if isinstance(input_device_id, str):
             dev_reg = dr.async_get(hass)
             target_device = dev_reg.async_get(input_device_id)
 
@@ -110,6 +110,9 @@ async def async_register_clean_room_service(hass: HomeAssistant):
         room_id = call.data.get("room_id")
         room_name = call.data.get("room_name")
         iterations = call.data.get("iterations", 1)
+
+        if not isinstance(device_id, str):
+            raise ServiceValidationError("Device ID must be a string")
 
         dev_reg = dr.async_get(hass)
         device = dev_reg.async_get(device_id)

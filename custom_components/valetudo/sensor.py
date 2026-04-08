@@ -1,14 +1,15 @@
 import logging
 import asyncio
+from typing import Any
 from datetime import timedelta
 
 from homeassistant.components.sensor import SensorEntity, SensorDeviceClass, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback, Event
+from homeassistant.core import HomeAssistant, callback, Event, CALLBACK_TYPE
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.event import async_track_time_interval, async_track_state_change_event
+from homeassistant.helpers.event import async_track_time_interval, async_track_state_change_event, EventStateChangedData
 from homeassistant.components import camera
 from homeassistant.components.vacuum import VacuumActivity
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -59,7 +60,7 @@ class ValetudoSensorManager:
         self.config_entry_id = config_entry_id
 
         self._sensors: dict[str, list[SensorEntity]] = {}
-        self._listeners = []
+        self._listeners: list[Any] = []
 
     async def async_setup(self):
         self._scan_existing_devices()
@@ -93,7 +94,7 @@ class ValetudoSensorManager:
         action = event.data.get("action")
         device_id = event.data.get("device_id")
 
-        if action == "remove" and device_id in self._sensors:
+        if action == "remove" and isinstance(device_id, str) and device_id in self._sensors:
             _LOGGER.debug(f"Device {device_id} removed. Cleaning up sensors.")
             sensors = self._sensors.pop(device_id)
             for sensor in sensors:
@@ -101,7 +102,7 @@ class ValetudoSensorManager:
                     self.hass.async_create_task(sensor.async_remove())
             return
 
-        if action in ("create", "update"):
+        if action in ("create", "update") and isinstance(device_id, str):
             dev_reg = dr.async_get(self.hass)
             device = dev_reg.async_get(device_id)
             if device and device.manufacturer == "Valetudo":
@@ -114,7 +115,7 @@ class ValetudoSensorManager:
         entity_id = event.data.get("entity_id")
         ent_reg = er.async_get(self.hass)
 
-        if action == "create":
+        if action == "create" and isinstance(entity_id, str):
             entry = ent_reg.async_get(entity_id)
             if entry and entry.device_id:
                 self._try_add_sensors(entry.device_id)
@@ -158,25 +159,25 @@ class ValetudoSensorManager:
         ent_reg = er.async_get(self.hass)
         device_entities = er.async_entries_for_device(ent_reg, device_id)
 
-        vacuum_entity = next(
+        vac_entry = next(
             (e for e in device_entities if e.domain == "vacuum"),
             None
         )
-        if vacuum_entity:
+        if vac_entry is not None:
             # Try enrichment immediately - use async_add_job for extra safety in registry callback
-            self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
+            self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vac_entry.entity_id))
             
             # Also listen for first state change to retry enrichment when IP/MAC might appear
-            if vacuum_entity.entity_id not in [l[1] for l in self._listeners if isinstance(l, tuple)]:
-                 async def _async_handle_enrich(event: Event) -> None:
-                     await async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id)
+            if vac_entry.entity_id not in [listener[1] for listener in self._listeners if isinstance(listener, tuple)]:
+                 async def _async_handle_enrich(event: Event[EventStateChangedData]) -> None:
+                     await async_enrich_registry(self.hass, device_id, vac_entry.entity_id)
 
                  unsub = async_track_state_change_event(
                      self.hass, 
-                     [vacuum_entity.entity_id], 
+                     [vac_entry.entity_id], 
                      _async_handle_enrich
                  )
-                 self._listeners.append((unsub, vacuum_entity.entity_id))
+                 self._listeners.append((unsub, vac_entry.entity_id))
 
         map_entity = next(
             (e for e in device_entities
@@ -240,7 +241,7 @@ class ValetudoEstimatedSegmentSensor(SensorEntity):
         self._attr_available = False
 
         self._process_lock = asyncio.Lock()
-        self._timer_unsub = None
+        self._timer_unsub: CALLBACK_TYPE | None = None
 
     async def async_added_to_hass(self) -> None:
         self.async_on_remove(

@@ -83,7 +83,7 @@ def unpack_pixels(data: dict) -> dict:
             compressed_pixels = layer.get("compressedPixels", [])
 
             if len(pixels) == 0 and len(compressed_pixels) > 0:
-                new_pixels = []
+                new_pixels: list[int] = []
 
                 # compressedPixels structure: [xStart, y, count, xStart, y, count, ...]
                 # Iterate by 3
