@@ -122,15 +122,18 @@ class ValetudoSelectManager:
             self._selects[device_id].append(select)
             self.async_add_entities([select])
 
-            # Try enrichment immediately
+            # Try enrichment immediately - use async_add_job for extra safety in registry callback
             self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
                 
             # Also listen for first state change to retry enrichment when IP/MAC might appear
             if not any(isinstance(l, tuple) and l[1] == vacuum_entity.entity_id for l in self._listeners):
+                async def _async_handle_enrich(event: Event) -> None:
+                    await async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id)
+
                 unsub = async_track_state_change_event(
                     self.hass, 
                     [vacuum_entity.entity_id], 
-                    lambda event: self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
+                    _async_handle_enrich
                 )
                 self._listeners.append((unsub, vacuum_entity.entity_id))
 

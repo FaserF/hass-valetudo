@@ -53,7 +53,10 @@ class ValetudoSwitchManager:
     def async_unload(self):
         """Unregister listeners."""
         for unsub in self._listeners:
-            unsub()
+            if isinstance(unsub, tuple):
+                unsub[0]()
+            else:
+                unsub()
         self._listeners.clear()
         self._switches.clear()
 
@@ -101,24 +104,32 @@ class ValetudoSwitchManager:
         if not vacuum_entity:
             return
 
-        self._switches[device_id] = []
+        if device_id not in self._switches:
+            self._switches[device_id] = []
+        
+        # Avoid duplicate switches or double registration
+        if any(isinstance(s, ValetudoCarpetBoostSwitch) for s in self._switches[device_id]):
+            return
 
-        vacuum_entity = next(
-            (e for e in device_entities if e.domain == "vacuum"),
-            None
-        )
-        if vacuum_entity:
-            # Try enrichment immediately
-            self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
+        _LOGGER.debug(f"Creating ValetudoCarpetBoostSwitch for device {device.name}")
+        switch = ValetudoCarpetBoostSwitch(self.hass, device, vacuum_entity.entity_id)
+        self._switches[device_id].append(switch)
+        self.async_add_entities([switch])
+
+        # Try enrichment immediately - use async_add_job for extra safety in registry callback
+        self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
             
-            # Also listen for first state change to retry enrichment when IP/MAC might appear
-            if (None, vacuum_entity.entity_id) not in self._listeners: # Check if we are already listening
-                 unsub = async_track_state_change_event(
-                     self.hass, 
-                     [vacuum_entity.entity_id], 
-                     lambda event: self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
-                 )
-                 self._listeners.append((unsub, vacuum_entity.entity_id))
+        # Also listen for first state change to retry enrichment when IP/MAC might appear
+        if (None, vacuum_entity.entity_id) not in self._listeners: # Check if we are already listening
+             async def _async_handle_enrich(event: Event) -> None:
+                 await async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id)
+
+             unsub = async_track_state_change_event(
+                 self.hass, 
+                 [vacuum_entity.entity_id], 
+                 _async_handle_enrich
+             )
+             self._listeners.append((unsub, vacuum_entity.entity_id))
 
 class ValetudoCarpetBoostSwitch(SwitchEntity):
     _attr_has_entity_name = True

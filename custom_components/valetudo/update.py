@@ -12,6 +12,7 @@ from homeassistant.components.update import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback, Event
+from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
@@ -73,8 +74,11 @@ class ValetudoUpdateManager:
     @callback
     def async_unload(self):
         """Unregister listeners."""
-        for unsub in self._listeners:
-            unsub()
+        for listener in self._listeners:
+            if isinstance(listener, tuple):
+                listener[0]()
+            else:
+                listener()
         self._listeners.clear()
         self._entities.clear()
 
@@ -132,16 +136,19 @@ class ValetudoUpdateManager:
         self._entities[device_id].append(entity)
         self.async_add_entities([entity])
 
-        # Try enrichment immediately
+        # Try enrichment immediately - use async_add_job for extra safety in registry callback
         self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
         
         # Also listen for first state change to retry enrichment when IP/MAC might appear
         # Store as a tuple (unsub_function, entity_id) to easily check if already listening
         if (None, vacuum_entity.entity_id) not in self._listeners: # Check if we are already listening for this entity
+             async def _async_handle_enrich(event: Event) -> None:
+                 await async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id)
+
              unsub = async_track_state_change_event(
                  self.hass, 
                  [vacuum_entity.entity_id], 
-                 lambda event: self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
+                 _async_handle_enrich
              )
              self._listeners.append((unsub, vacuum_entity.entity_id))
 
