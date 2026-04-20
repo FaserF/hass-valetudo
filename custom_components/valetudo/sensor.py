@@ -3,13 +3,21 @@ import asyncio
 from typing import Any
 from datetime import timedelta
 
-from homeassistant.components.sensor import SensorEntity, SensorDeviceClass, SensorStateClass
+from homeassistant.components.sensor import (
+    SensorEntity,
+    SensorDeviceClass,
+    SensorStateClass,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback, Event, CALLBACK_TYPE
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.event import async_track_time_interval, async_track_state_change_event, EventStateChangedData
+from homeassistant.helpers.event import (
+    async_track_time_interval,
+    async_track_state_change_event,
+    EventStateChangedData,
+)
 from homeassistant.components import camera
 from homeassistant.components.vacuum import VacuumActivity
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -30,9 +38,9 @@ ACTIVE_STATES = {
 
 
 async def async_setup_entry(
-        hass: HomeAssistant,
-        config_entry: ConfigEntry,
-        async_add_entities: AddEntitiesCallback,
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the Valetudo sensors."""
     if config_entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_AUGMENTATIONS:
@@ -54,7 +62,12 @@ class ValetudoSensorManager:
     Watches the registry to handle device lifecycle events (creation/deletion via MQTT).
     """
 
-    def __init__(self, hass: HomeAssistant, async_add_entities: AddEntitiesCallback, config_entry_id: str):
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        async_add_entities: AddEntitiesCallback,
+        config_entry_id: str,
+    ):
         self.hass = hass
         self.async_add_entities = async_add_entities
         self.config_entry_id = config_entry_id
@@ -65,15 +78,17 @@ class ValetudoSensorManager:
     async def async_setup(self):
         self._scan_existing_devices()
 
-        self._listeners.append(self.hass.bus.async_listen(
-            dr.EVENT_DEVICE_REGISTRY_UPDATED,
-            self._handle_device_registry_update
-        ))
+        self._listeners.append(
+            self.hass.bus.async_listen(
+                dr.EVENT_DEVICE_REGISTRY_UPDATED, self._handle_device_registry_update
+            )
+        )
 
-        self._listeners.append(self.hass.bus.async_listen(
-            er.EVENT_ENTITY_REGISTRY_UPDATED,
-            self._handle_entity_registry_update
-        ))
+        self._listeners.append(
+            self.hass.bus.async_listen(
+                er.EVENT_ENTITY_REGISTRY_UPDATED, self._handle_entity_registry_update
+            )
+        )
 
     @callback
     def async_unload(self):
@@ -94,7 +109,11 @@ class ValetudoSensorManager:
         action = event.data.get("action")
         device_id = event.data.get("device_id")
 
-        if action == "remove" and isinstance(device_id, str) and device_id in self._sensors:
+        if (
+            action == "remove"
+            and isinstance(device_id, str)
+            and device_id in self._sensors
+        ):
             _LOGGER.debug(f"Device {device_id} removed. Cleaning up sensors.")
             sensors = self._sensors.pop(device_id)
             for sensor in sensors:
@@ -159,35 +178,41 @@ class ValetudoSensorManager:
         ent_reg = er.async_get(self.hass)
         device_entities = er.async_entries_for_device(ent_reg, device_id)
 
-        vac_entry = next(
-            (e for e in device_entities if e.domain == "vacuum"),
-            None
-        )
+        vac_entry = next((e for e in device_entities if e.domain == "vacuum"), None)
         if vac_entry is not None:
             # Try enrichment immediately - use async_add_job for extra safety in registry callback
-            self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vac_entry.entity_id))
-            
-            # Also listen for first state change to retry enrichment when IP/MAC might appear
-            if vac_entry.entity_id not in [listener[1] for listener in self._listeners if isinstance(listener, tuple)]:
-                 async def _async_handle_enrich(event: Event[EventStateChangedData]) -> None:
-                     await async_enrich_registry(self.hass, device_id, vac_entry.entity_id)
+            self.hass.async_create_task(
+                async_enrich_registry(self.hass, device_id, vac_entry.entity_id)
+            )
 
-                 unsub = async_track_state_change_event(
-                     self.hass, 
-                     [vac_entry.entity_id], 
-                     _async_handle_enrich
-                 )
-                 self._listeners.append((unsub, vac_entry.entity_id))
+            # Also listen for first state change to retry enrichment when IP/MAC might appear
+            if vac_entry.entity_id not in [
+                listener[1]
+                for listener in self._listeners
+                if isinstance(listener, tuple)
+            ]:
+
+                async def _async_handle_enrich(
+                    event: Event[EventStateChangedData],
+                ) -> None:
+                    await async_enrich_registry(
+                        self.hass, device_id, vac_entry.entity_id
+                    )
+
+                unsub = async_track_state_change_event(
+                    self.hass, [vac_entry.entity_id], _async_handle_enrich
+                )
+                self._listeners.append((unsub, vac_entry.entity_id))
 
         map_entity = next(
-            (e for e in device_entities
-             if e.domain == "camera" and e.entity_id.endswith("_map_data")),
-            None
+            (
+                e
+                for e in device_entities
+                if e.domain == "camera" and e.entity_id.endswith("_map_data")
+            ),
+            None,
         )
-        vacuum_entity = next(
-            (e for e in device_entities if e.domain == "vacuum"),
-            None
-        )
+        vacuum_entity = next((e for e in device_entities if e.domain == "vacuum"), None)
 
         if not vacuum_entity or not map_entity:
             return
@@ -209,13 +234,14 @@ class ValetudoSensorManager:
                 continue
 
             _LOGGER.debug(f"Creating {Cls.__name__} for device {device.name}")
-            sensor = Cls(self.hass, device, map_entity.entity_id, vacuum_entity.entity_id)
+            sensor = Cls(
+                self.hass, device, map_entity.entity_id, vacuum_entity.entity_id
+            )
             self._sensors[device_id].append(sensor)
             new_entities.append(sensor)
 
         if new_entities:
             self.async_add_entities(new_entities)
-
 
 
 class ValetudoEstimatedSegmentSensor(SensorEntity):
@@ -225,7 +251,13 @@ class ValetudoEstimatedSegmentSensor(SensorEntity):
     _attr_should_poll = False
     _attr_entity_registry_enabled_default = False
 
-    def __init__(self, hass: HomeAssistant, device: dr.DeviceEntry, map_entity_id: str, vacuum_entity_id: str):
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        device: dr.DeviceEntry,
+        map_entity_id: str,
+        vacuum_entity_id: str,
+    ):
         self.hass = hass
         self._map_entity_id = map_entity_id
         self._vacuum_entity_id = vacuum_entity_id
@@ -236,7 +268,7 @@ class ValetudoEstimatedSegmentSensor(SensorEntity):
             "identifiers": device.identifiers,
         }
         self._attr_native_value: str | float | None = None
-        self._attr_extra_state_attributes = {}
+        self._attr_extra_state_attributes: dict[str, Any] = {}
 
         self._attr_available = False
 
@@ -303,8 +335,7 @@ class ValetudoEstimatedSegmentSensor(SensorEntity):
 
             try:
                 raw_map_data = await self.hass.async_add_executor_job(
-                    extract_map_from_image,
-                    image_bytes
+                    extract_map_from_image, image_bytes
                 )
             except Exception:
                 return
@@ -320,12 +351,13 @@ class ValetudoEstimatedSegmentSensor(SensorEntity):
 
             try:
                 segment_info = await self.hass.async_add_executor_job(
-                    self._approximate_segment,
-                    raw_map_data
+                    self._approximate_segment, raw_map_data
                 )
 
                 if segment_info:
-                    self._attr_native_value = segment_info.get("name") or f"Segment {segment_info.get('id')}"
+                    self._attr_native_value = (
+                        segment_info.get("name") or f"Segment {segment_info.get('id')}"
+                    )
                     self._attr_extra_state_attributes = {
                         "segment_id": segment_info.get("id"),
                     }
@@ -347,6 +379,7 @@ class ValetudoEstimatedSegmentSensor(SensorEntity):
 
 class ValetudoWifiSSIDSensor(SensorEntity):
     """Sensor for the Wi-Fi SSID."""
+
     _attr_has_entity_name = True
     _attr_name = "Wi-Fi SSID"
     _attr_icon = "mdi:wifi"
@@ -354,7 +387,13 @@ class ValetudoWifiSSIDSensor(SensorEntity):
     _attr_entity_registry_enabled_default = False
     _attr_entity_category = er.EntityCategory.DIAGNOSTIC
 
-    def __init__(self, hass: HomeAssistant, device: dr.DeviceEntry, map_entity_id: str, vacuum_entity_id: str):
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        device: dr.DeviceEntry,
+        map_entity_id: str,
+        vacuum_entity_id: str,
+    ):
         self.hass = hass
         self._vacuum_entity_id = vacuum_entity_id
         self._attr_unique_id = f"{device.id}_wifi_ssid"
@@ -389,6 +428,7 @@ class ValetudoWifiSSIDSensor(SensorEntity):
 
 class ValetudoWifiSignalSensor(SensorEntity):
     """Sensor for the Wi-Fi signal strength (RSSI)."""
+
     _attr_has_entity_name = True
     _attr_name = "Wi-Fi Signal Strength"
     _attr_icon = "mdi:wifi"
@@ -399,7 +439,13 @@ class ValetudoWifiSignalSensor(SensorEntity):
     _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
     _attr_state_class = SensorStateClass.MEASUREMENT
 
-    def __init__(self, hass: HomeAssistant, device: dr.DeviceEntry, map_entity_id: str, vacuum_entity_id: str):
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        device: dr.DeviceEntry,
+        map_entity_id: str,
+        vacuum_entity_id: str,
+    ):
         self.hass = hass
         self._vacuum_entity_id = vacuum_entity_id
         self._attr_unique_id = f"{device.id}_wifi_signal"
@@ -407,7 +453,7 @@ class ValetudoWifiSignalSensor(SensorEntity):
             "connections": device.connections,
             "identifiers": device.identifiers,
         }
-        self._attr_native_value = None
+        self._attr_native_value: float | None = None
 
     async def async_added_to_hass(self) -> None:
         self.async_on_remove(
@@ -434,13 +480,23 @@ class ValetudoWifiSignalSensor(SensorEntity):
 
 class ValetudoConsumableSensor(SensorEntity):
     """Base sensor for Valetudo consumables."""
+
     _attr_has_entity_name = True
     _attr_should_poll = False
     _attr_entity_registry_enabled_default = False
     _attr_entity_category = er.EntityCategory.DIAGNOSTIC
     _attr_native_unit_of_measurement = "%"
 
-    def __init__(self, hass: HomeAssistant, device: dr.DeviceEntry, map_entity_id: str, vacuum_entity_id: str, attr_key: str, name: str, icon: str):
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        device: dr.DeviceEntry,
+        map_entity_id: str,
+        vacuum_entity_id: str,
+        attr_key: str,
+        name: str,
+        icon: str,
+    ):
         self.hass = hass
         self._vacuum_entity_id = vacuum_entity_id
         self._attr_key = attr_key
@@ -475,10 +531,40 @@ class ValetudoConsumableSensor(SensorEntity):
             self._attr_native_value = value
             self.async_write_ha_state()
 
+
 class ValetudoBrushConsumableSensor(ValetudoConsumableSensor):
-    def __init__(self, hass: HomeAssistant, device: dr.DeviceEntry, map_entity_id: str, vacuum_entity_id: str):
-        super().__init__(hass, device, map_entity_id, vacuum_entity_id, "main_brush", "Main Brush Life", "mdi:brush")
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        device: dr.DeviceEntry,
+        map_entity_id: str,
+        vacuum_entity_id: str,
+    ):
+        super().__init__(
+            hass,
+            device,
+            map_entity_id,
+            vacuum_entity_id,
+            "main_brush",
+            "Main Brush Life",
+            "mdi:brush",
+        )
+
 
 class ValetudoFilterConsumableSensor(ValetudoConsumableSensor):
-    def __init__(self, hass: HomeAssistant, device: dr.DeviceEntry, map_entity_id: str, vacuum_entity_id: str):
-        super().__init__(hass, device, map_entity_id, vacuum_entity_id, "filter", "Filter Life", "mdi:air-filter")
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        device: dr.DeviceEntry,
+        map_entity_id: str,
+        vacuum_entity_id: str,
+    ):
+        super().__init__(
+            hass,
+            device,
+            map_entity_id,
+            vacuum_entity_id,
+            "filter",
+            "Filter Life",
+            "mdi:air-filter",
+        )

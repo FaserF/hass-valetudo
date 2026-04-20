@@ -7,4 +7,6 @@ PLATFORMS = ["sensor", "update", "select", "number", "switch"]
 
 
 VALETUDO_RELEASES_URL = "https://github.com/Hypfer/Valetudo/releases"
-VALETUDO_LATEST_RELEASE_API = "https://api.github.com/repos/Hypfer/Valetudo/releases/latest"
+VALETUDO_LATEST_RELEASE_API = (
+    "https://api.github.com/repos/Hypfer/Valetudo/releases/latest"
+)

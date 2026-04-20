@@ -8,7 +8,7 @@ from homeassistant.helpers.service_info.mqtt import MqttServiceInfo
 from .const import DOMAIN, CONF_ENTRY_TYPE, ENTRY_TYPE_ICONS, ENTRY_TYPE_AUGMENTATIONS
 
 
-class FlowHandler(ConfigFlow, domain=DOMAIN):
+class FlowHandler(ConfigFlow, domain=DOMAIN):  # type: ignore
     VERSION = 1
 
     async def async_step_user(
@@ -58,13 +58,14 @@ class FlowHandler(ConfigFlow, domain=DOMAIN):
         # We need to parse the payload if it's JSON
         try:
             import json
+
             payload = json.loads(discovery_info.payload)
             device = payload.get("device", {})
             manufacturer = device.get("manufacturer", "")
-            
+
             if manufacturer != "Valetudo":
                 return self.async_abort(reason="not_valetudo")
-                
+
             # Check if we already have an augmentations entry
             for entry in self._async_current_entries():
                 if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_AUGMENTATIONS:
@@ -72,7 +73,7 @@ class FlowHandler(ConfigFlow, domain=DOMAIN):
 
             # We can now offer to set up the augmentations
             return await self.async_step_confirm_discovery()
-            
+
         except Exception:
             return self.async_abort(reason="invalid_discovery_info")
 

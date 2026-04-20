@@ -17,7 +17,6 @@ async def async_setup_services(hass: HomeAssistant):
     await async_register_clean_room_service(hass)
 
 
-
 async def async_register_extract_map_service(hass: HomeAssistant):
     service_name = "extract_map_data"
 
@@ -35,7 +34,9 @@ async def async_register_extract_map_service(hass: HomeAssistant):
             target_device = dev_reg.async_get(input_device_id)
 
             if not target_device:
-                raise ServiceValidationError(f"Device {input_device_id} not found in registry.")
+                raise ServiceValidationError(
+                    f"Device {input_device_id} not found in registry."
+                )
 
             if target_device.manufacturer != "Valetudo":
                 raise ServiceValidationError(
@@ -46,9 +47,12 @@ async def async_register_extract_map_service(hass: HomeAssistant):
             device_entities = er.async_entries_for_device(ent_reg, input_device_id)
 
             map_entity_entry = next(
-                (e for e in device_entities
-                 if e.domain == "camera" and e.entity_id.endswith("_map_data")),
-                None
+                (
+                    e
+                    for e in device_entities
+                    if e.domain == "camera" and e.entity_id.endswith("_map_data")
+                ),
+                None,
             )
 
             if not map_entity_entry:
@@ -62,8 +66,9 @@ async def async_register_extract_map_service(hass: HomeAssistant):
             target_entity_id = input_entity_id
 
         else:
-            raise ServiceValidationError("Please provide either a device_id or an entity_id.")
-
+            raise ServiceValidationError(
+                "Please provide either a device_id or an entity_id."
+            )
 
         try:
             image_obj = await camera.async_get_image(hass, target_entity_id)
@@ -76,8 +81,7 @@ async def async_register_extract_map_service(hass: HomeAssistant):
 
         try:
             map_data = await hass.async_add_executor_job(
-                extract_and_parse_map,
-                image_bytes
+                extract_and_parse_map, image_bytes
             )
         except Exception as e:
             _LOGGER.error(f"Error parsing map data: {e}")
@@ -94,7 +98,7 @@ async def async_register_extract_map_service(hass: HomeAssistant):
         DOMAIN,
         service_name,
         async_handle_extract_map_data,
-        supports_response=SupportsResponse.ONLY
+        supports_response=SupportsResponse.ONLY,
     )
 
 
@@ -128,19 +132,21 @@ async def async_register_clean_room_service(hass: HomeAssistant):
                 break
 
         if not mqtt_identifier:
-             # Try to find via entities if not in identifiers
-             ent_reg = er.async_get(hass)
-             entries = er.async_entries_for_device(ent_reg, device_id)
-             for entry in entries:
-                 if entry.platform == "mqtt":
-                     # This is a bit hacky but often works if the identifier is the same as the topic part
-                     parts = entry.unique_id.split("_")
-                     if len(parts) > 1:
-                         mqtt_identifier = parts[0]
-                         break
+            # Try to find via entities if not in identifiers
+            ent_reg = er.async_get(hass)
+            entries = er.async_entries_for_device(ent_reg, device_id)
+            for entry in entries:
+                if entry.platform == "mqtt":
+                    # This is a bit hacky but often works if the identifier is the same as the topic part
+                    parts = entry.unique_id.split("_")
+                    if len(parts) > 1:
+                        mqtt_identifier = parts[0]
+                        break
 
         if not mqtt_identifier:
-            raise ServiceValidationError(f"Could not find MQTT identifier for device {device.name}")
+            raise ServiceValidationError(
+                f"Could not find MQTT identifier for device {device.name}"
+            )
 
         final_room_id = room_id
 
@@ -149,9 +155,12 @@ async def async_register_clean_room_service(hass: HomeAssistant):
             ent_reg = er.async_get(hass)
             state = None
             select_entity = next(
-                (e for e in er.async_entries_for_device(ent_reg, device_id)
-                 if e.domain == "select" and e.unique_id.endswith("_room_select")),
-                None
+                (
+                    e
+                    for e in er.async_entries_for_device(ent_reg, device_id)
+                    if e.domain == "select" and e.unique_id.endswith("_room_select")
+                ),
+                None,
             )
             if select_entity:
                 state = hass.states.get(select_entity.entity_id)
@@ -160,22 +169,23 @@ async def async_register_clean_room_service(hass: HomeAssistant):
                     final_room_id = room_ids.get(room_name)
 
         if not final_room_id:
-            raise ServiceValidationError("Please provide either a room_id or a valid room_name.")
+            raise ServiceValidationError(
+                "Please provide either a room_id or a valid room_name."
+            )
 
         topic = f"valetudo/{mqtt_identifier}/MapSegmentationCapability/clean/set"
-        payload = json.dumps({
-            "segment_ids": [str(final_room_id)],
-            "iterations": iterations
-        })
-        
+        payload = json.dumps(
+            {"segment_ids": [str(final_room_id)], "iterations": iterations}
+        )
+
         from homeassistant.components import mqtt as mqtt_component
+
         await mqtt_component.async_publish(hass, topic, payload)
-        _LOGGER.info(f"Service clean_room triggered for {device.name}, room {final_room_id}")
+        _LOGGER.info(
+            f"Service clean_room triggered for {device.name}, room {final_room_id}"
+        )
 
     # For manual mapping in YAML
     import json
-    hass.services.async_register(
-        DOMAIN,
-        service_name,
-        async_handle_clean_room
-    )
+
+    hass.services.async_register(DOMAIN, service_name, async_handle_clean_room)

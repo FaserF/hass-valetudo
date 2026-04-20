@@ -6,7 +6,10 @@ from homeassistant.core import HomeAssistant, callback, Event
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.event import async_track_state_change_event, EventStateChangedData
+from homeassistant.helpers.event import (
+    async_track_state_change_event,
+    EventStateChangedData,
+)
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.components import camera, mqtt
 import json
@@ -16,6 +19,7 @@ from .device_utils import async_enrich_registry
 from .map_utils import extract_map_from_image
 
 _LOGGER = logging.getLogger(__name__)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -35,10 +39,16 @@ async def async_setup_entry(
     if DOMAIN not in hass.data:
         hass.data[DOMAIN] = {}
     if config_entry.entry_id not in hass.data[DOMAIN]:
-         pass
+        pass
+
 
 class ValetudoSelectManager:
-    def __init__(self, hass: HomeAssistant, async_add_entities: AddEntitiesCallback, config_entry_id: str):
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        async_add_entities: AddEntitiesCallback,
+        config_entry_id: str,
+    ):
         self.hass = hass
         self.async_add_entities = async_add_entities
         self.config_entry_id = config_entry_id
@@ -47,15 +57,17 @@ class ValetudoSelectManager:
 
     async def async_setup(self):
         self._scan_existing_devices()
-        self._listeners.append(self.hass.bus.async_listen(
-            dr.EVENT_DEVICE_REGISTRY_UPDATED,
-            self._handle_device_registry_update
-        ))
+        self._listeners.append(
+            self.hass.bus.async_listen(
+                dr.EVENT_DEVICE_REGISTRY_UPDATED, self._handle_device_registry_update
+            )
+        )
 
-        self._listeners.append(self.hass.bus.async_listen(
-            er.EVENT_ENTITY_REGISTRY_UPDATED,
-            self._handle_entity_registry_update
-        ))
+        self._listeners.append(
+            self.hass.bus.async_listen(
+                er.EVENT_ENTITY_REGISTRY_UPDATED, self._handle_entity_registry_update
+            )
+        )
 
     @callback
     def async_unload(self):
@@ -104,10 +116,19 @@ class ValetudoSelectManager:
 
         # Find the vacuum entity and map entity for this device
         vacuum_entity = next((e for e in device_entities if e.domain == "vacuum"), None)
-        map_entity = next((e for e in device_entities if e.domain == "camera" and "map" in e.entity_id), None)
+        map_entity = next(
+            (
+                e
+                for e in device_entities
+                if e.domain == "camera" and "map" in e.entity_id
+            ),
+            None,
+        )
 
         if not vacuum_entity or not map_entity:
-            _LOGGER.debug(f"Skipping select creation for device {device.name}: missing vacuum or map entity.")
+            _LOGGER.debug(
+                f"Skipping select creation for device {device.name}: missing vacuum or map entity."
+            )
             return
 
         # Initialize _selects entry if it doesn't exist
@@ -121,19 +142,28 @@ class ValetudoSelectManager:
             self.async_add_entities([select])
 
             # Try enrichment immediately - use async_add_job for extra safety in registry callback
-            self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
-                
+            self.hass.async_create_task(
+                async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id)
+            )
+
             # Also listen for first state change to retry enrichment when IP/MAC might appear
-            if not any(isinstance(listener, tuple) and listener[1] == vacuum_entity.entity_id for listener in self._listeners):
-                async def _async_handle_enrich(event: Event[EventStateChangedData]) -> None:
-                    await async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id)
+            if not any(
+                isinstance(listener, tuple) and listener[1] == vacuum_entity.entity_id
+                for listener in self._listeners
+            ):
+
+                async def _async_handle_enrich(
+                    event: Event[EventStateChangedData],
+                ) -> None:
+                    await async_enrich_registry(
+                        self.hass, device_id, vacuum_entity.entity_id
+                    )
 
                 unsub = async_track_state_change_event(
-                    self.hass, 
-                    [vacuum_entity.entity_id], 
-                    _async_handle_enrich
+                    self.hass, [vacuum_entity.entity_id], _async_handle_enrich
                 )
                 self._listeners.append((unsub, vacuum_entity.entity_id))
+
 
 class ValetudoRoomSelect(SelectEntity, RestoreEntity):
     _attr_has_entity_name = True
@@ -152,10 +182,10 @@ class ValetudoRoomSelect(SelectEntity, RestoreEntity):
         }
         self._attr_current_option: str | None = None
         self._attr_options: list[str] = []
-        self._rooms: dict[str, str] = {} # Name -> ID
+        self._rooms: dict[str, str] = {}  # Name -> ID
         self._attr_extra_state_attributes: dict[str, Any] = {}
         self._attr_available = False
-        
+
         # Get identifier for MQTT
         self._mqtt_identifier = None
         for identifier in device.identifiers:
@@ -165,20 +195,22 @@ class ValetudoRoomSelect(SelectEntity, RestoreEntity):
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        
+
         # Restore last state
         last_state = await self.async_get_last_state()
         if last_state is not None:
-             self._attr_options = last_state.attributes.get("options", [])
-             self._attr_current_option = last_state.state
-             self._rooms = last_state.attributes.get("room_ids", {})
-             self._attr_extra_state_attributes = {
-                 "room_ids": self._rooms,
-                 "selected_room_id": self._rooms.get(self._attr_current_option or "")
-             }
-             if self._attr_options:
-                 self._attr_available = True
-                 _LOGGER.debug(f"Restored {len(self._attr_options)} rooms for {self.unique_id}")
+            self._attr_options = last_state.attributes.get("options", [])
+            self._attr_current_option = last_state.state
+            self._rooms = last_state.attributes.get("room_ids", {})
+            self._attr_extra_state_attributes = {
+                "room_ids": self._rooms,
+                "selected_room_id": self._rooms.get(self._attr_current_option or ""),
+            }
+            if self._attr_options:
+                self._attr_available = True
+                _LOGGER.debug(
+                    f"Restored {len(self._attr_options)} rooms for {self.unique_id}"
+                )
 
         self.async_on_remove(
             async_track_state_change_event(
@@ -195,7 +227,9 @@ class ValetudoRoomSelect(SelectEntity, RestoreEntity):
         # Ensure map entity still exists
         if self.hass.states.get(self._map_entity_id) is None:
             if self._attr_available:
-                _LOGGER.debug(f"Map entity {self._map_entity_id} not found, marking select as unavailable")
+                _LOGGER.debug(
+                    f"Map entity {self._map_entity_id} not found, marking select as unavailable"
+                )
                 self._attr_available = False
                 self.async_write_ha_state()
             return
@@ -203,8 +237,7 @@ class ValetudoRoomSelect(SelectEntity, RestoreEntity):
         try:
             image_obj = await camera.async_get_image(self.hass, self._map_entity_id)
             map_data = await self.hass.async_add_executor_job(
-                extract_map_from_image,
-                image_obj.content
+                extract_map_from_image, image_obj.content
             )
             if not map_data:
                 return
@@ -223,16 +256,22 @@ class ValetudoRoomSelect(SelectEntity, RestoreEntity):
                 self._attr_options = sorted(list(rooms.keys()))
                 self._attr_available = len(self._attr_options) > 0
                 if self._attr_current_option not in self._attr_options:
-                    self._attr_current_option = self._attr_options[0] if self._attr_options else None
-                
+                    self._attr_current_option = (
+                        self._attr_options[0] if self._attr_options else None
+                    )
+
                 # Expose IDs in attributes for automations
                 self._attr_extra_state_attributes = {
                     "room_ids": self._rooms,
-                    "selected_room_id": self._rooms.get(self._attr_current_option or "")
+                    "selected_room_id": self._rooms.get(
+                        self._attr_current_option or ""
+                    ),
                 }
                 self.async_write_ha_state()
         except camera.HomeAssistantError as e:
-            _LOGGER.debug(f"Intermittent error fetching map for {self._map_entity_id}: {e}")
+            _LOGGER.debug(
+                f"Intermittent error fetching map for {self._map_entity_id}: {e}"
+            )
             if self._attr_available:
                 self._attr_available = False
                 self.async_write_ha_state()
@@ -247,11 +286,13 @@ class ValetudoRoomSelect(SelectEntity, RestoreEntity):
         self._attr_current_option = option
         self._attr_extra_state_attributes["selected_room_id"] = self._rooms.get(option)
         self.async_write_ha_state()
-        
+
         # Trigger cleaning if possible
         if self._mqtt_identifier and option in self._rooms:
             room_id = self._rooms[option]
-            topic = f"valetudo/{self._mqtt_identifier}/MapSegmentationCapability/clean/set"
+            topic = (
+                f"valetudo/{self._mqtt_identifier}/MapSegmentationCapability/clean/set"
+            )
             payload = json.dumps({"segment_ids": [room_id]})
             await mqtt.async_publish(self.hass, topic, payload)
             _LOGGER.info(f"Triggered cleaning for room {option} ({room_id})")

@@ -8,7 +8,7 @@ _LOGGER = logging.getLogger(__name__)
 
 def extract_map_from_image(image_data: bytes) -> dict | None:
     # Valid PNG Header: 89 50 4E 47 0D 0A 1A 0A
-    if image_data[:8] != b'\x89PNG\r\n\x1a\n':
+    if image_data[:8] != b"\x89PNG\r\n\x1a\n":
         raise ValueError("Invalid PNG file header")
 
     idx = 8
@@ -19,13 +19,13 @@ def extract_map_from_image(image_data: bytes) -> dict | None:
         # Read Length (4 bytes, Big Endian)
         if idx + 4 > length:
             break
-        chunk_length = struct.unpack(">I", image_data[idx:idx + 4])[0]
+        chunk_length = struct.unpack(">I", image_data[idx : idx + 4])[0]
         idx += 4
 
         # Read Type (4 bytes)
-        chunk_type_bytes = image_data[idx:idx + 4]
+        chunk_type_bytes = image_data[idx : idx + 4]
         try:
-            chunk_type = chunk_type_bytes.decode('ascii')
+            chunk_type = chunk_type_bytes.decode("ascii")
         except UnicodeDecodeError:
             chunk_type = "UNKNOWN"
         idx += 4
@@ -38,18 +38,18 @@ def extract_map_from_image(image_data: bytes) -> dict | None:
             # The zTXt chunk data structure:
             # Keyword (1-79 bytes) + Null Separator (1 byte) + Compression Method (1 byte) + Compressed Data
 
-            chunk_data = image_data[idx: idx + chunk_length]
+            chunk_data = image_data[idx : idx + chunk_length]
 
             # Find the null separator
             try:
-                null_index = chunk_data.index(b'\x00')
+                null_index = chunk_data.index(b"\x00")
                 # Keyword is latin-1 encoded according to PNG spec
-                keyword = chunk_data[:null_index].decode('latin-1')
+                keyword = chunk_data[:null_index].decode("latin-1")
 
                 if keyword == "ValetudoMap":
                     # Skip Keyword (n) + Null (1) + Compression Method (1)
                     # The data starts at null_index + 2
-                    compressed_payload = chunk_data[null_index + 2:]
+                    compressed_payload = chunk_data[null_index + 2 :]
 
                     try:
                         decompressed = zlib.decompress(compressed_payload)
@@ -174,7 +174,7 @@ def approximate_segment(map_data: dict) -> dict | None:
     # PASS 2: Find exact pixel match
     # -------------------------------------------------------------------------
     closest_segment_info = None
-    min_dist_sq = float('inf')
+    min_dist_sq = float("inf")
 
     for aabb_dist_sq, layer in candidates:
         # Since the list is sorted by AABB distance, if the theoretical minimum distance
@@ -199,7 +199,7 @@ def approximate_segment(map_data: dict) -> dict | None:
                 meta = layer.get("metaData", {})
                 closest_segment_info = {
                     "id": meta.get("segmentId"),
-                    "name": meta.get("name")
+                    "name": meta.get("name"),
                 }
 
                 # If distance is 0, we are exactly on a pixel of this segment.

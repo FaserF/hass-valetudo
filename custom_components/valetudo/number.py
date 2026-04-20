@@ -6,13 +6,17 @@ from homeassistant.core import HomeAssistant, callback, Event
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.event import async_track_state_change_event, EventStateChangedData
+from homeassistant.helpers.event import (
+    async_track_state_change_event,
+    EventStateChangedData,
+)
 from homeassistant.components import mqtt
 
 from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_AUGMENTATIONS
 from .device_utils import async_enrich_registry
 
 _LOGGER = logging.getLogger(__name__)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -28,8 +32,14 @@ async def async_setup_entry(
 
     config_entry.async_on_unload(manager.async_unload)
 
+
 class ValetudoNumberManager:
-    def __init__(self, hass: HomeAssistant, async_add_entities: AddEntitiesCallback, config_entry_id: str):
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        async_add_entities: AddEntitiesCallback,
+        config_entry_id: str,
+    ):
         self.hass = hass
         self.async_add_entities = async_add_entities
         self.config_entry_id = config_entry_id
@@ -38,15 +48,17 @@ class ValetudoNumberManager:
 
     async def async_setup(self):
         self._scan_existing_devices()
-        self._listeners.append(self.hass.bus.async_listen(
-            dr.EVENT_DEVICE_REGISTRY_UPDATED,
-            self._handle_device_registry_update
-        ))
+        self._listeners.append(
+            self.hass.bus.async_listen(
+                dr.EVENT_DEVICE_REGISTRY_UPDATED, self._handle_device_registry_update
+            )
+        )
 
-        self._listeners.append(self.hass.bus.async_listen(
-            er.EVENT_ENTITY_REGISTRY_UPDATED,
-            self._handle_entity_registry_update
-        ))
+        self._listeners.append(
+            self.hass.bus.async_listen(
+                er.EVENT_ENTITY_REGISTRY_UPDATED, self._handle_entity_registry_update
+            )
+        )
 
     @callback
     def async_unload(self):
@@ -93,36 +105,44 @@ class ValetudoNumberManager:
         ent_reg = er.async_get(self.hass)
         device_entities = er.async_entries_for_device(ent_reg, device_id)
 
-        vacuum_entity = next(
-            (e for e in device_entities if e.domain == "vacuum"),
-            None
-        )
+        vacuum_entity = next((e for e in device_entities if e.domain == "vacuum"), None)
         if not vacuum_entity:
             return
 
         if device_id not in self._numbers:
             self._numbers[device_id] = []
 
-        if not any(isinstance(n, ValetudoVolumeNumber) for n in self._numbers[device_id]):
+        if not any(
+            isinstance(n, ValetudoVolumeNumber) for n in self._numbers[device_id]
+        ):
             _LOGGER.debug(f"Creating ValetudoVolumeNumber for device {device.name}")
             num = ValetudoVolumeNumber(self.hass, device, vacuum_entity.entity_id)
             self._numbers[device_id].append(num)
             self.async_add_entities([num])
 
             # Try enrichment immediately - use async_add_job for extra safety in registry callback
-            self.hass.async_create_task(async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id))
-            
-            # Also listen for first state change to retry enrichment when IP/MAC might appear
-            if not any(isinstance(listener, tuple) and listener[1] == vacuum_entity.entity_id for listener in self._listeners):
-                 async def _async_handle_enrich(event: Event[EventStateChangedData]) -> None:
-                     await async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id)
+            self.hass.async_create_task(
+                async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id)
+            )
 
-                 unsub = async_track_state_change_event(
-                     self.hass, 
-                     [vacuum_entity.entity_id], 
-                     _async_handle_enrich
-                 )
-                 self._listeners.append((unsub, vacuum_entity.entity_id))
+            # Also listen for first state change to retry enrichment when IP/MAC might appear
+            if not any(
+                isinstance(listener, tuple) and listener[1] == vacuum_entity.entity_id
+                for listener in self._listeners
+            ):
+
+                async def _async_handle_enrich(
+                    event: Event[EventStateChangedData],
+                ) -> None:
+                    await async_enrich_registry(
+                        self.hass, device_id, vacuum_entity.entity_id
+                    )
+
+                unsub = async_track_state_change_event(
+                    self.hass, [vacuum_entity.entity_id], _async_handle_enrich
+                )
+                self._listeners.append((unsub, vacuum_entity.entity_id))
+
 
 class ValetudoVolumeNumber(NumberEntity):
     _attr_has_entity_name = True
@@ -133,10 +153,12 @@ class ValetudoVolumeNumber(NumberEntity):
     _attr_native_max_value = 100
     _attr_native_step = 1
     _attr_mode = NumberMode.SLIDER
-    _attr_entity_registry_enabled_default = False # As per user request
+    _attr_entity_registry_enabled_default = False  # As per user request
     _attr_entity_category = er.EntityCategory.CONFIG
 
-    def __init__(self, hass: HomeAssistant, device: dr.DeviceEntry, vacuum_entity_id: str):
+    def __init__(
+        self, hass: HomeAssistant, device: dr.DeviceEntry, vacuum_entity_id: str
+    ):
         self.hass = hass
         self._vacuum_entity_id = vacuum_entity_id
         self._attr_unique_id = f"{device.id}_voice_volume"
@@ -178,7 +200,9 @@ class ValetudoVolumeNumber(NumberEntity):
         if not self._mqtt_identifier:
             return
 
-        topic = f"valetudo/{self._mqtt_identifier}/SpeakerVolumeControlCapability/value/set"
+        topic = (
+            f"valetudo/{self._mqtt_identifier}/SpeakerVolumeControlCapability/value/set"
+        )
         await mqtt.async_publish(self.hass, topic, str(int(value)))
         self._attr_native_value = value
         self.async_write_ha_state()
