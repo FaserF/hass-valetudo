@@ -16,7 +16,6 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import (
     async_track_time_interval,
     async_track_state_change_event,
-    EventStateChangedData,
 )
 from homeassistant.components import camera
 from homeassistant.components.vacuum import VacuumActivity
@@ -24,7 +23,6 @@ from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
 from .const import DOMAIN, CONF_ENTRY_TYPE, ENTRY_TYPE_AUGMENTATIONS
 from .map_utils import extract_map_from_image, unpack_pixels, approximate_segment
-from .device_utils import async_enrich_registry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -178,31 +176,7 @@ class ValetudoSensorManager:
         ent_reg = er.async_get(self.hass)
         device_entities = er.async_entries_for_device(ent_reg, device_id)
 
-        vac_entry = next((e for e in device_entities if e.domain == "vacuum"), None)
-        if vac_entry is not None:
-            # Try enrichment immediately - use async_add_job for extra safety in registry callback
-            self.hass.async_create_task(
-                async_enrich_registry(self.hass, device_id, vac_entry.entity_id)
-            )
-
-            # Also listen for first state change to retry enrichment when IP/MAC might appear
-            if vac_entry.entity_id not in [
-                listener[1]
-                for listener in self._listeners
-                if isinstance(listener, tuple)
-            ]:
-
-                async def _async_handle_enrich(
-                    event: Event[EventStateChangedData],
-                ) -> None:
-                    await async_enrich_registry(
-                        self.hass, device_id, vac_entry.entity_id
-                    )
-
-                unsub = async_track_state_change_event(
-                    self.hass, [vac_entry.entity_id], _async_handle_enrich
-                )
-                self._listeners.append((unsub, vac_entry.entity_id))
+        next((e for e in device_entities if e.domain == "vacuum"), None)
 
         map_entity = next(
             (

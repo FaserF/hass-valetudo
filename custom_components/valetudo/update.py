@@ -12,8 +12,7 @@ from homeassistant.components.update import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback, Event
 from homeassistant.helpers.event import (
-    async_track_state_change_event,
-    EventStateChangedData,
+    async_call_later,
 )
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers import device_registry as dr
@@ -27,7 +26,6 @@ from .const import (
     VALETUDO_LATEST_RELEASE_API,
     VALETUDO_RELEASES_URL,
 )
-from .device_utils import async_enrich_registry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -144,39 +142,15 @@ class ValetudoUpdateManager:
         self._entities[device_id].append(entity)
         self.async_add_entities([entity])
 
-        # Try enrichment immediately - use async_add_job for extra safety in registry callback
-        self.hass.async_create_task(
-            async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id)
-        )
-
-        # Also listen for first state change to retry enrichment when IP/MAC might appear
-        # Store as a tuple (unsub_function, entity_id) to easily check if already listening
-        if not any(
-            isinstance(listener, tuple) and listener[1] == vacuum_entity.entity_id
-            for listener in self._listeners
-        ):  # Check if we are already listening for this entity
-
-            async def _async_handle_enrich(event: Event[EventStateChangedData]) -> None:
-                await async_enrich_registry(
-                    self.hass, device_id, vacuum_entity.entity_id
-                )
-
-            unsub = async_track_state_change_event(
-                self.hass, [vacuum_entity.entity_id], _async_handle_enrich
-            )
-            self._listeners.append((unsub, vacuum_entity.entity_id))
-
 
 class ValetudoUpdateEntity(UpdateEntity, RestoreEntity):
     """Update entity for Valetudo firmware."""
 
     _attr_has_entity_name = True
-    _attr_name = "Firmware"
+    _attr_name = "Valetudo Firmware"
     _attr_device_class = UpdateDeviceClass.FIRMWARE
-    _attr_supported_features = (
-        UpdateEntityFeature.INSTALL | UpdateEntityFeature.RELEASE_NOTES
-    )
-    _attr_should_poll = True
+    _attr_supported_features = UpdateEntityFeature.INSTALL
+    _attr_should_poll = False
 
     def __init__(self, hass: HomeAssistant, device: dr.DeviceEntry):
         self.hass = hass
@@ -208,11 +182,13 @@ class ValetudoUpdateEntity(UpdateEntity, RestoreEntity):
                 f"Restored state for {self.unique_id}: {self._attr_installed_version} -> {self._attr_latest_version}"
             )
 
-        # Trigger an immediate update to fetch latest version and refresh installed
-        _LOGGER.debug(
-            f"Entity {self.unique_id} added to Hass, triggering initial update"
-        )
-        self.hass.async_create_task(self.async_update())
+        async def _initial_fetch(_now=None) -> None:
+            await self.async_update()
+            self.async_write_ha_state()
+
+        async_call_later(self.hass, 10, _initial_fetch)
+
+        self.async_on_remove(async_call_later(self.hass, 3600, _initial_fetch))
 
     async def async_update(self) -> None:
         """Fetch latest version from GitHub."""

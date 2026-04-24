@@ -8,14 +8,12 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import (
     async_track_state_change_event,
-    EventStateChangedData,
 )
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.components import camera, mqtt
 import json
 
 from .const import DOMAIN, CONF_ENTRY_TYPE, ENTRY_TYPE_AUGMENTATIONS
-from .device_utils import async_enrich_registry
 from .map_utils import extract_map_from_image
 
 _LOGGER = logging.getLogger(__name__)
@@ -141,29 +139,6 @@ class ValetudoSelectManager:
             self._selects[device_id].append(select)
             self.async_add_entities([select])
 
-            # Try enrichment immediately - use async_add_job for extra safety in registry callback
-            self.hass.async_create_task(
-                async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id)
-            )
-
-            # Also listen for first state change to retry enrichment when IP/MAC might appear
-            if not any(
-                isinstance(listener, tuple) and listener[1] == vacuum_entity.entity_id
-                for listener in self._listeners
-            ):
-
-                async def _async_handle_enrich(
-                    event: Event[EventStateChangedData],
-                ) -> None:
-                    await async_enrich_registry(
-                        self.hass, device_id, vacuum_entity.entity_id
-                    )
-
-                unsub = async_track_state_change_event(
-                    self.hass, [vacuum_entity.entity_id], _async_handle_enrich
-                )
-                self._listeners.append((unsub, vacuum_entity.entity_id))
-
 
 class ValetudoRoomSelect(SelectEntity, RestoreEntity):
     _attr_has_entity_name = True
@@ -217,7 +192,8 @@ class ValetudoRoomSelect(SelectEntity, RestoreEntity):
                 self.hass, [self._map_entity_id], self._handle_map_update
             )
         )
-        await self._update_from_map()
+        if not self._attr_options:
+            self.hass.async_create_task(self._update_from_map())
 
     @callback
     def _handle_map_update(self, event):
@@ -251,16 +227,13 @@ class ValetudoRoomSelect(SelectEntity, RestoreEntity):
                     if s_id:
                         rooms[s_name] = str(s_id)
 
-            if rooms != self._rooms:
+            # Only mark available if we actually got rooms
+            if rooms:
                 self._rooms = rooms
                 self._attr_options = sorted(list(rooms.keys()))
-                self._attr_available = len(self._attr_options) > 0
+                self._attr_available = True
                 if self._attr_current_option not in self._attr_options:
-                    self._attr_current_option = (
-                        self._attr_options[0] if self._attr_options else None
-                    )
-
-                # Expose IDs in attributes for automations
+                    self._attr_current_option = self._attr_options[0]
                 self._attr_extra_state_attributes = {
                     "room_ids": self._rooms,
                     "selected_room_id": self._rooms.get(
@@ -270,14 +243,15 @@ class ValetudoRoomSelect(SelectEntity, RestoreEntity):
                 self.async_write_ha_state()
         except camera.HomeAssistantError as e:
             _LOGGER.debug(
-                f"Intermittent error fetching map for {self._map_entity_id}: {e}"
+                "Intermittent error fetching map for %s: %s", self._map_entity_id, e
             )
-            if self._attr_available:
+            # Only mark unavailable if we have no cached rooms
+            if not self._attr_options and self._attr_available:
                 self._attr_available = False
                 self.async_write_ha_state()
         except Exception as e:
-            _LOGGER.error(f"Error updating rooms from map: {e}")
-            if self._attr_available:
+            _LOGGER.error("Error updating rooms from map: %s", e, exc_info=True)
+            if not self._attr_options and self._attr_available:
                 self._attr_available = False
                 self.async_write_ha_state()
 

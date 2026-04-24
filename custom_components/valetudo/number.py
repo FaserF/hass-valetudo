@@ -8,12 +8,10 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import (
     async_track_state_change_event,
-    EventStateChangedData,
 )
 from homeassistant.components import mqtt
 
 from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_AUGMENTATIONS
-from .device_utils import async_enrich_registry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -119,29 +117,6 @@ class ValetudoNumberManager:
             num = ValetudoVolumeNumber(self.hass, device, vacuum_entity.entity_id)
             self._numbers[device_id].append(num)
             self.async_add_entities([num])
-
-            # Try enrichment immediately - use async_add_job for extra safety in registry callback
-            self.hass.async_create_task(
-                async_enrich_registry(self.hass, device_id, vacuum_entity.entity_id)
-            )
-
-            # Also listen for first state change to retry enrichment when IP/MAC might appear
-            if not any(
-                isinstance(listener, tuple) and listener[1] == vacuum_entity.entity_id
-                for listener in self._listeners
-            ):
-
-                async def _async_handle_enrich(
-                    event: Event[EventStateChangedData],
-                ) -> None:
-                    await async_enrich_registry(
-                        self.hass, device_id, vacuum_entity.entity_id
-                    )
-
-                unsub = async_track_state_change_event(
-                    self.hass, [vacuum_entity.entity_id], _async_handle_enrich
-                )
-                self._listeners.append((unsub, vacuum_entity.entity_id))
 
 
 class ValetudoVolumeNumber(NumberEntity):
