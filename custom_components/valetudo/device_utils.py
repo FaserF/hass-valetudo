@@ -28,7 +28,7 @@ async def async_enrich_registry(
             return []
 
         formatted_mac = dr.format_mac(mac) if mac else None
-        _LOGGER.info(
+        _LOGGER.debug(
             "Valetudo: Identity for %s resolved to IP=%s, MAC=%s",
             device.name,
             ip,
@@ -55,7 +55,7 @@ async def async_enrich_registry(
             )
 
             if conflicting_device:
-                _LOGGER.info(
+                _LOGGER.debug(
                     "Valetudo: Found conflicting device '%s' (%s) with same MAC %s. Merging manually.",
                     conflicting_device.name,
                     conflicting_device.id,
