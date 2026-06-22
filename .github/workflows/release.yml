@@ -212,7 +212,8 @@ jobs:
 
       - name: 📦 Zip Component
         run: |
-          zip -r valetudo.zip custom_components/valetudo
+          cd custom_components/valetudo
+          zip -r ../../valetudo.zip .
 
       - name: Download Release Body Artifact
         uses: actions/download-artifact@v8
