@@ -93,7 +93,7 @@ def calculate_version(rtype, level="patch", curr=None, now=None, override=None):
     stype, snum = ("b", int(b_n)) if b_p else (("-dev", int(d_n)) if d_p else (None, 0))
 
     # Detect scheme based on major version (e.g. 2026 is CalVer, 1 or 2 is SemVer)
-    is_calver = False
+    is_calver = v1 >= 2020
 
     if is_calver:
         # CalVer Bumping Logic (Year.Month.Patch)
