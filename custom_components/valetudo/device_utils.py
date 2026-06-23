@@ -29,10 +29,8 @@ async def async_enrich_registry(
 
         formatted_mac = dr.format_mac(mac) if mac else None
         _LOGGER.debug(
-            "Valetudo: Identity for %s resolved to IP=%s, MAC=%s",
+            "Valetudo: Identity for %s resolved",
             device.name,
-            ip,
-            formatted_mac,
         )
 
         moved_entities: list[str] = []
