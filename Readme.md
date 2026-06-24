@@ -72,6 +72,7 @@ Also, if you use `response_as_sensor` don't forget to set the `Response variable
 ## Installation
 
 ### Via HACS (Recommended)
+[![Downloads (Current release)](https://img.shields.io/github/downloads/FaserF/hass-valetudo/latest/valetudo.zip?label=Downloads%20(Current%20release)&style=for-the-badge)](https://github.com/FaserF/hass-valetudo/releases)
 
 To install this integration using [HACS](https://www.hacs.xyz/):
 
