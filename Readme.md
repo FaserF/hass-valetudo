@@ -12,7 +12,7 @@ This `custom_component` provides enhanced functionality for using Valetudo-enabl
 Native Home Assistant firmware update support!
 - View currently installed Valetudo version.
 - Automatically check for the latest Valetudo releases from GitHub.
-- Trigger firmware downloads directly from Home Assistant via MQTT.
+- Trigger firmware updates directly from Home Assistant via Valetudo REST API (with live status & progress percentage feedback).
 
 ### 🆕 MQTT Auto-Discovery
 Easier setup with smart discovery!
@@ -25,15 +25,16 @@ Easier setup with smart discovery!
 ### 🆕 Room Selection
 Select and clean specific rooms directly from Home Assistant.
 - Dynamic "Select" entity populated from Valetudo map data.
-- Built-in `valetudo.clean_room` service for easy automation.
+- Built-in `valetudo.clean_room` service for easy automation (executed reliably via REST API).
 - Supports multiple iterations per room.
 
 ### 🆕 Advanced Augmentations (Optional)
 This integration provides extra sensors and controls for advanced users. **These are disabled by default** to keep your dashboard clean.
 - **Consumables**: Native sensors for Main Brush and Filter endurance.
-- **Extended Configuration**: Voice Volume slider and Carpet Boost switch.
+- **Extended Configuration**: Voice Volume slider and Carpet Boost switch (controlled via Valetudo REST API).
 - **Network Diagnostics**: Separate sensors for Wi-Fi SSID and Signal Strength.
 - **Improved Device Mapping**: Automatically normalizes and adds the robot's MAC address to the device registry for better network integration (e.g., with Fritz!Box or OpenWrt).
+
 
 <img width="700" src="https://github.com/user-attachments/assets/a6379c49-4e53-43c0-b914-1f92bcb61f6e" />
 
