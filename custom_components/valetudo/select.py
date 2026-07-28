@@ -1,19 +1,20 @@
 import logging
 from typing import Any
+
+from homeassistant.components import camera
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback, Event
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import (
     async_track_state_change_event,
 )
 from homeassistant.helpers.restore_state import RestoreEntity
-from homeassistant.components import camera, mqtt
-import json
 
-from .const import DOMAIN, CONF_ENTRY_TYPE, ENTRY_TYPE_AUGMENTATIONS
+from .const import CONF_ENTRY_TYPE, DOMAIN, ENTRY_TYPE_AUGMENTATIONS
+from .device_utils import _do_valetudo_put
 from .map_utils import extract_map_from_image
 
 _LOGGER = logging.getLogger(__name__)
@@ -161,12 +162,8 @@ class ValetudoRoomSelect(SelectEntity, RestoreEntity):
         self._attr_extra_state_attributes: dict[str, Any] = {}
         self._attr_available = False
 
-        # Get identifier for MQTT
-        self._mqtt_identifier = None
-        for identifier in device.identifiers:
-            if identifier[0] == "mqtt":
-                self._mqtt_identifier = identifier[1]
-                break
+        # Device ID for REST calls
+        self._device_id = device.id
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
@@ -230,7 +227,7 @@ class ValetudoRoomSelect(SelectEntity, RestoreEntity):
             # Only mark available if we actually got rooms
             if rooms:
                 self._rooms = rooms
-                self._attr_options = sorted(list(rooms.keys()))
+                self._attr_options = sorted(rooms.keys())
                 self._attr_available = True
                 if self._attr_current_option not in self._attr_options:
                     self._attr_current_option = self._attr_options[0]
@@ -249,8 +246,8 @@ class ValetudoRoomSelect(SelectEntity, RestoreEntity):
             if not self._attr_options and self._attr_available:
                 self._attr_available = False
                 self.async_write_ha_state()
-        except Exception as e:
-            _LOGGER.error("Error updating rooms from map: %s", e, exc_info=True)
+        except Exception:
+            _LOGGER.exception("Error updating rooms from map")
             if not self._attr_options and self._attr_available:
                 self._attr_available = False
                 self.async_write_ha_state()
@@ -261,12 +258,13 @@ class ValetudoRoomSelect(SelectEntity, RestoreEntity):
         self._attr_extra_state_attributes["selected_room_id"] = self._rooms.get(option)
         self.async_write_ha_state()
 
-        # Trigger cleaning if possible
-        if self._mqtt_identifier and option in self._rooms:
+        # Trigger cleaning via REST if possible
+        if option in self._rooms:
             room_id = self._rooms[option]
-            topic = (
-                f"valetudo/{self._mqtt_identifier}/MapSegmentationCapability/clean/set"
+            await _do_valetudo_put(
+                self.hass,
+                self._device_id,
+                "/api/v2/robot/capabilities/MapSegmentationCapability",
+                {"action": "start_segment_action", "segment_ids": [room_id]},
             )
-            payload = json.dumps({"segment_ids": [room_id]})
-            await mqtt.async_publish(self.hass, topic, payload)
             _LOGGER.info(f"Triggered cleaning for room {option} ({room_id})")

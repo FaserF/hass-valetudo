@@ -1,8 +1,12 @@
 import logging
 import re
 from collections.abc import Callable
+
+import aiohttp
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import DeviceConnectionCollisionError
 
 _LOGGER = logging.getLogger(__name__)
@@ -76,13 +80,13 @@ async def async_enrich_registry(
                             identifiers=device.identifiers
                             | conflicting_device.identifiers,
                         )
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001
                         _LOGGER.debug("Valetudo: Could not merge identifiers: %s", e)
 
                 # CLEANUP: Remove the conflicting device
                 try:
                     dev_reg.async_remove_device(conflicting_device.id)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     _LOGGER.debug("Valetudo: Could not remove old device: %s", e)
 
             # Ensure James himself has the connection
@@ -97,7 +101,7 @@ async def async_enrich_registry(
                     dev_reg.async_update_device(device_id, merge_connections={new_conn})
                 except DeviceConnectionCollisionError:
                     pass
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     _LOGGER.debug("Valetudo: Error updating device connections: %s", e)
 
         # 2. Also search for any trackers by IP and ensure they are on James
@@ -117,10 +121,8 @@ async def async_enrich_registry(
 
         return moved_entities
 
-    except Exception as e:
-        _LOGGER.error(
-            "Valetudo: Error during registry enrichment: %s", e, exc_info=True
-        )
+    except Exception:
+        _LOGGER.exception("Valetudo: Error during registry enrichment")
         return []
 
 
@@ -230,3 +232,54 @@ async def _resolve_network_identity(
                     break
 
     return ip, mac
+
+
+async def _do_valetudo_put(
+    hass: HomeAssistant,
+    device_id: str,
+    path: str,
+    payload: dict,
+) -> bool:
+    """PUT to the Valetudo REST API for a given device.
+
+    Resolves the robot IP from entity states automatically.
+    Returns True on success, False on any error.
+    path should start with '/api/v2/...'.
+    """
+    ip, _ = await _resolve_network_identity(hass, device_id)
+    if not ip:
+        _LOGGER.error(
+            "Valetudo REST: Cannot resolve IP for device %s — skipping PUT to %s",
+            device_id,
+            path,
+        )
+        return False
+
+    url = f"http://{ip}{path}"
+    session = async_get_clientsession(hass)
+    timeout = aiohttp.ClientTimeout(total=15)
+    try:
+        async with session.put(
+            url,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=timeout,
+        ) as resp:
+            if resp.status in (200, 202):
+                _LOGGER.debug("Valetudo REST: PUT %s → %s OK", url, payload)
+                return True
+            body = await resp.text()
+            _LOGGER.error(
+                "Valetudo REST: PUT %s → %s failed: HTTP %s — %s",
+                url,
+                payload,
+                resp.status,
+                body,
+            )
+            return False
+    except aiohttp.ClientError as err:
+        _LOGGER.error("Valetudo REST: Network error PUT %s: %s", url, err)
+        return False
+    except Exception:
+        _LOGGER.exception("Valetudo REST: Unexpected error PUT %s", url)
+        return False

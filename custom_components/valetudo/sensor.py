@@ -1,28 +1,28 @@
-import logging
 import asyncio
-from typing import Any
+import logging
 from datetime import timedelta
+from typing import Any
 
+from homeassistant.components import camera
 from homeassistant.components.sensor import (
-    SensorEntity,
     SensorDeviceClass,
+    SensorEntity,
     SensorStateClass,
 )
+from homeassistant.components.vacuum import VacuumActivity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback, Event, CALLBACK_TYPE
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import (
-    async_track_time_interval,
     async_track_state_change_event,
+    async_track_time_interval,
 )
-from homeassistant.components import camera
-from homeassistant.components.vacuum import VacuumActivity
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
-from .const import DOMAIN, CONF_ENTRY_TYPE, ENTRY_TYPE_AUGMENTATIONS
-from .map_utils import extract_map_from_image, unpack_pixels, approximate_segment
+from .const import CONF_ENTRY_TYPE, DOMAIN, ENTRY_TYPE_AUGMENTATIONS
+from .map_utils import approximate_segment, extract_map_from_image, unpack_pixels
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -304,14 +304,14 @@ class ValetudoEstimatedSegmentSensor(SensorEntity):
             try:
                 image_obj = await camera.async_get_image(self.hass, self._map_entity_id)
                 image_bytes = image_obj.content
-            except Exception:
+            except Exception:  # noqa: BLE001
                 return
 
             try:
                 raw_map_data = await self.hass.async_add_executor_job(
                     extract_map_from_image, image_bytes
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001
                 return
 
             if not raw_map_data:
@@ -341,7 +341,7 @@ class ValetudoEstimatedSegmentSensor(SensorEntity):
 
                 self.async_write_ha_state()
 
-            except Exception:
+            except Exception:  # noqa: BLE001
                 return
 
     def _approximate_segment(self, map_data: dict) -> dict | None:

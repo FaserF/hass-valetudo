@@ -2,7 +2,7 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
-from .file_utils import VERSION, BASE_PATH
+from .file_utils import BASE_PATH, VERSION
 
 # Adapted from https://github.com/hacs/integration/blob/7d46a52de0df2466aa65e446458b952150398f4c/custom_components/hacs/frontend.py#L58
 try:

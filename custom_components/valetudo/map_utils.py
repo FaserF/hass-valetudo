@@ -1,7 +1,7 @@
-import struct
-import zlib
 import json
 import logging
+import struct
+import zlib
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ def extract_map_from_image(image_data: bytes) -> dict | None:
                         map_json = json.loads(decompressed)
                     except Exception as e:
                         _LOGGER.error(f"Failed to decompress/parse ValetudoMap: {e}")
-                        raise e
+                        raise
             except ValueError:
                 pass  # No null byte found, malformed zTXt
 

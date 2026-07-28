@@ -1,12 +1,13 @@
 import logging
 
+from homeassistant.components import camera
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
-from homeassistant.components import camera
-from homeassistant.exceptions import ServiceValidationError
 
 from .const import DOMAIN
+from .device_utils import _do_valetudo_put
 from .map_utils import extract_and_parse_map
 
 _LOGGER = logging.getLogger(__name__)
@@ -73,17 +74,17 @@ async def async_register_extract_map_service(hass: HomeAssistant):
         try:
             image_obj = await camera.async_get_image(hass, target_entity_id)
             image_bytes = image_obj.content
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             raise ServiceValidationError(
                 f"Failed to fetch image from entity '{target_entity_id}'. "
-                f"Ensure it is a valid camera. Error: {str(e)}"
+                f"Ensure it is a valid camera. Error: {e!s}"
             )
 
         try:
             map_data = await hass.async_add_executor_job(
                 extract_and_parse_map, image_bytes
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             _LOGGER.error(f"Error parsing map data: {e}")
             raise ServiceValidationError(f"Error parsing map data: {e}")
 
@@ -124,30 +125,6 @@ async def async_register_clean_room_service(hass: HomeAssistant):
         if not device:
             raise ServiceValidationError(f"Device {device_id} not found.")
 
-        # Find MQTT identifier
-        mqtt_identifier = None
-        for identifier in device.identifiers:
-            if identifier[0] == "mqtt":
-                mqtt_identifier = identifier[1]
-                break
-
-        if not mqtt_identifier:
-            # Try to find via entities if not in identifiers
-            ent_reg = er.async_get(hass)
-            entries = er.async_entries_for_device(ent_reg, device_id)
-            for entry in entries:
-                if entry.platform == "mqtt":
-                    # This is a bit hacky but often works if the identifier is the same as the topic part
-                    parts = entry.unique_id.split("_")
-                    if len(parts) > 1:
-                        mqtt_identifier = parts[0]
-                        break
-
-        if not mqtt_identifier:
-            raise ServiceValidationError(
-                f"Could not find MQTT identifier for device {device.name}"
-            )
-
         final_room_id = room_id
 
         if not final_room_id and room_name:
@@ -173,19 +150,20 @@ async def async_register_clean_room_service(hass: HomeAssistant):
                 "Please provide either a room_id or a valid room_name."
             )
 
-        topic = f"valetudo/{mqtt_identifier}/MapSegmentationCapability/clean/set"
-        payload = json.dumps(
-            {"segment_ids": [str(final_room_id)], "iterations": iterations}
+        success = await _do_valetudo_put(
+            hass,
+            device_id,
+            "/api/v2/robot/capabilities/MapSegmentationCapability",
+            {
+                "action": "start_segment_action",
+                "segment_ids": [str(final_room_id)],
+                "iterations": iterations,
+            },
         )
-
-        from homeassistant.components import mqtt as mqtt_component
-
-        await mqtt_component.async_publish(hass, topic, payload)
-        _LOGGER.info(
-            f"Service clean_room triggered for {device.name}, room {final_room_id}"
-        )
+        if success:
+            _LOGGER.info(
+                f"Service clean_room triggered for {device.name}, room {final_room_id}"
+            )
 
     # For manual mapping in YAML
-    import json
-
     hass.services.async_register(DOMAIN, service_name, async_handle_clean_room)

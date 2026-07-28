@@ -1,24 +1,24 @@
+import asyncio
 import logging
-from typing import Any
 from datetime import timedelta
-import aiohttp
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from typing import Any
 
+import aiohttp
 from homeassistant.components.update import (
+    UpdateDeviceClass,
     UpdateEntity,
     UpdateEntityFeature,
-    UpdateDeviceClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback, Event
+from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import (
     async_call_later,
 )
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.restore_state import RestoreEntity
-from homeassistant.components.mqtt import async_publish
 
 from .const import (
     CONF_ENTRY_TYPE,
@@ -26,6 +26,7 @@ from .const import (
     VALETUDO_LATEST_RELEASE_API,
     VALETUDO_RELEASES_URL,
 )
+from .device_utils import _resolve_network_identity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -104,6 +105,11 @@ class ValetudoUpdateManager:
             device = dev_reg.async_get(device_id)
             if device and device.manufacturer == "Valetudo":
                 self._try_add_entities(device_id)
+                # Notify existing entities of the registry update (e.g. name or connection changes)
+                if device_id in self._entities:
+                    for entity in self._entities[device_id]:
+                        if isinstance(entity, ValetudoUpdateEntity):
+                            entity.async_update_device(device)
 
     @callback
     def _handle_entity_registry_update(self, event: Event):
@@ -151,6 +157,7 @@ class ValetudoUpdateEntity(UpdateEntity, RestoreEntity):
     _attr_device_class = UpdateDeviceClass.FIRMWARE
     _attr_supported_features = UpdateEntityFeature.INSTALL
     _attr_should_poll = False
+    _attr_update_percentage: int | float | None = None
 
     def __init__(self, hass: HomeAssistant, device: dr.DeviceEntry):
         self.hass = hass
@@ -165,9 +172,36 @@ class ValetudoUpdateEntity(UpdateEntity, RestoreEntity):
         self._attr_release_notes = None
         self._attr_release_url = VALETUDO_RELEASES_URL
 
+    @callback
+    def async_update_device(self, device: dr.DeviceEntry) -> None:
+        """Update device reference and refresh HA state when Device Registry changes."""
+        self._device = device
+        self._attr_device_info = {
+            "connections": device.connections,
+            "identifiers": device.identifiers,
+        }
+        if device.sw_version and self._attr_installed_version != device.sw_version:
+            self._attr_installed_version = device.sw_version
+        self.async_write_ha_state()
+
     async def async_added_to_hass(self) -> None:
         """Handle entity which will be added."""
         await super().async_added_to_hass()
+
+        # Listen to direct device registry updates for this device (e.g. name or connection updates)
+        @callback
+        def _on_device_registry_update(event: Event):
+            if event.data.get("device_id") == self._device.id:
+                dev_reg = dr.async_get(self.hass)
+                dev = dev_reg.async_get(self._device.id)
+                if dev:
+                    self.async_update_device(dev)
+
+        self.async_on_remove(
+            self.hass.bus.async_listen(
+                dr.EVENT_DEVICE_REGISTRY_UPDATED, _on_device_registry_update
+            )
+        )
 
         # Restore last state
         last_state = await self.async_get_last_state()
@@ -206,9 +240,6 @@ class ValetudoUpdateEntity(UpdateEntity, RestoreEntity):
                     new_version = data.get("tag_name")
                     if new_version:
                         self._attr_latest_version = new_version
-                        if new_version.startswith("v"):
-                            # Consistent handling of 'v' prefix if needed
-                            pass
                         self._attr_release_notes = data.get("body")
                         _LOGGER.debug(
                             f"Successfully fetched Valetudo version: {self._attr_latest_version}"
@@ -219,10 +250,12 @@ class ValetudoUpdateEntity(UpdateEntity, RestoreEntity):
                     _LOGGER.warning(
                         f"Failed to fetch Valetudo version from GitHub: {response.status}"
                     )
-        except Exception as err:
-            _LOGGER.error(
-                f"Unexpected error fetching Valetudo version: {err}", exc_info=True
+        except (asyncio.TimeoutError, aiohttp.ClientError) as err:
+            _LOGGER.warning(
+                f"Could not fetch Valetudo version from GitHub (network/timeout): {err}"
             )
+        except Exception:
+            _LOGGER.exception("Unexpected error fetching Valetudo version")
 
         # Refresh installed version from device registry in case it changed
         dev_reg = dr.async_get(self.hass)
@@ -243,30 +276,375 @@ class ValetudoUpdateEntity(UpdateEntity, RestoreEntity):
 
         # Log final state for debugging
         _LOGGER.debug(
-            f"Final state for {self.unique_id}: installed={self._attr_installed_version}, latest={self._attr_latest_version}"
+            "Final state for %s: installed=%s, latest=%s",
+            self.unique_id,
+            self._attr_installed_version,
+            self._attr_latest_version,
         )
         self.async_write_ha_state()
 
     async def async_install(
         self, version: str | None, backup: bool, **kwargs: Any
     ) -> None:
-        """Trigger update via MQTT."""
-        # We find the identifier to build the topic prefix
-        mqtt_id = None
-        for identifier in self._device.identifiers:
-            if identifier[0] == "mqtt":
-                mqtt_id = identifier[1]
-                break
+        """Trigger firmware update via Valetudo REST API.
 
-        if not mqtt_id:
-            _LOGGER.error(f"No MQTT identifier found for device {self._device.id}")
+        Valetudo's updater is a state machine. We must poll the state between
+        each action because all operations are asynchronous on the robot side.
+
+        State flow:
+          idle/error → [check] → update_available → [download] → downloaded → [apply] → (reboot)
+
+        Each action is only valid in specific states:
+          'check'    : valid from idle, error
+          'download' : valid from update_available
+          'apply'    : valid from downloaded
+
+        The 'busy' flag signals an async operation is in progress.
+        We poll until busy=false before sending the next action.
+        """
+        # ── Valetudo updater state class names ───────────────────────────────
+        S_IDLE = "ValetudoUpdaterIdleState"
+        S_ERROR = "ValetudoUpdaterErrorState"
+        S_AVAILABLE = "ValetudoUpdaterUpdateAvailableState"
+        S_DOWNLOADING = "ValetudoUpdaterDownloadingState"
+        S_DOWNLOADED = "ValetudoUpdaterDownloadedState"
+        S_APPROVAL_PENDING = "ValetudoUpdaterApprovalPendingState"
+        S_APPLY_PENDING = "ValetudoUpdaterApplyPendingState"
+        S_FINALIZATION_PENDING = (
+            "ValetudoUpdaterFinalizationPendingState"  # state right before apply
+        )
+        S_APPLYING = "ValetudoUpdaterApplyingState"
+
+        # ── Timeouts ─────────────────────────────────────────────────────────
+        POLL_INTERVAL = 3  # seconds between state polls
+        TIMEOUT_CHECK = 45  # seconds to wait for 'check' to complete
+        TIMEOUT_DOWNLOAD = 300  # seconds to wait for download (up to 5 min)
+        TIMEOUT_APPLY = 30  # seconds for apply HTTP request
+
+        # ── Resolve robot IP ─────────────────────────────────────────────────
+        ip, _ = await _resolve_network_identity(self.hass, self._device.id)
+        if not ip:
+            _LOGGER.error(
+                "Valetudo: Cannot trigger update for %s: No IP found. "
+                "Make sure the Wi-Fi sensor is available.",
+                self._device.name,
+            )
             return
 
-        # Valetudo MQTT Update Command topic
-        topic = f"valetudo/{mqtt_id}/Updater/action/set"
+        base_url = f"http://{ip}/api/v2/updater"
+        session = async_get_clientsession(self.hass)
 
+        # ── Helper: GET state ─────────────────────────────────────────────────
+        async def _get_state() -> dict | None:
+            """GET /api/v2/updater/state. Returns parsed JSON or None on error."""
+            try:
+                async with session.get(
+                    f"{base_url}/state",
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as resp:
+                    if resp.status == 200:
+                        return await resp.json(content_type=None)
+                    body = await resp.text()
+                    _LOGGER.error(
+                        "Valetudo: Could not read updater state for %s: HTTP %s – %s",
+                        self._device.name,
+                        resp.status,
+                        body,
+                    )
+            except asyncio.TimeoutError:
+                _LOGGER.warning(
+                    "Valetudo: Timeout reading updater state for %s",
+                    self._device.name,
+                )
+            except aiohttp.ClientError as err:
+                _LOGGER.error("Valetudo: Network error reading updater state: %s", err)
+            except Exception:
+                _LOGGER.exception("Valetudo: Unexpected error reading updater state")
+            return None
+
+        # ── Helper: PUT action ────────────────────────────────────────────────
+        async def _put_action(action: str, req_timeout: int = 30) -> bool:
+            """PUT {action} to the updater endpoint. Returns True on 200/202."""
+            try:
+                async with session.put(
+                    base_url,
+                    json={"action": action},
+                    headers={"Content-Type": "application/json"},
+                    timeout=aiohttp.ClientTimeout(total=req_timeout),
+                ) as resp:
+                    if resp.status in (200, 202):
+                        _LOGGER.info(
+                            "Valetudo: updater action '%s' accepted for %s (HTTP %s)",
+                            action,
+                            self._device.name,
+                            resp.status,
+                        )
+                        return True
+                    body = await resp.text()
+                    _LOGGER.error(
+                        "Valetudo: updater action '%s' failed for %s: HTTP %s – %s",
+                        action,
+                        self._device.name,
+                        resp.status,
+                        body,
+                    )
+                    return False
+            except asyncio.TimeoutError:
+                _LOGGER.error(
+                    "Valetudo: Timeout sending action '%s' for %s",
+                    action,
+                    self._device.name,
+                )
+            except aiohttp.ClientError as err:
+                _LOGGER.error(
+                    "Valetudo: Network error sending action '%s': %s", action, err
+                )
+            except Exception:
+                _LOGGER.exception(
+                    "Valetudo: Unexpected error sending action '%s'", action
+                )
+            return False
+
+        # ── Helper: poll until target state ───────────────────────────────────
+        async def _poll_until(
+            target_states: set,
+            timeout: int,
+            pct_start: int,
+            pct_end: int,
+        ) -> dict | None:
+            """Poll state until it reaches one of target_states (busy=false), or error.
+
+            Linearly interpolates _attr_update_percentage pct_start → pct_end.
+            Returns the final state dict, or None on timeout / too many network errors.
+            """
+            loop = asyncio.get_event_loop()
+            deadline = loop.time() + timeout
+            max_steps = max(timeout // POLL_INTERVAL, 1)
+            step = 0
+            consecutive_errors = 0
+
+            while True:
+                data = await _get_state()
+
+                if data is None:
+                    # Transient network error — tolerate several in a row
+                    consecutive_errors += 1
+                    if consecutive_errors >= 5:
+                        _LOGGER.error(
+                            "Valetudo: Too many consecutive network errors "
+                            "waiting for state %s — aborting",
+                            target_states,
+                        )
+                        return None
+                    await asyncio.sleep(POLL_INTERVAL)
+                    if loop.time() > deadline:
+                        _LOGGER.error(
+                            "Valetudo: Timed out (%ss) waiting for state %s "
+                            "(network errors)",
+                            timeout,
+                            target_states,
+                        )
+                        return None
+                    continue
+
+                consecutive_errors = 0
+                cls = data.get("__class", "")
+                busy = data.get("busy", False)
+
+                # Animate progress smoothly
+                fraction = min(step / max_steps, 1.0)
+                pct = int(pct_start + fraction * (pct_end - pct_start))
+                if self._attr_update_percentage != pct:
+                    self._attr_update_percentage = pct
+                    self.async_write_ha_state()
+
+                _LOGGER.debug("Valetudo: state=%s busy=%s pct=%s%%", cls, busy, pct)
+
+                # Reached a desired state and no longer busy → done
+                if cls in target_states and not busy:
+                    return data
+
+                # Error state reached (always settles to busy=false)
+                if cls == S_ERROR and not busy:
+                    msg = data.get("message", "unknown error")
+                    _LOGGER.error(
+                        "Valetudo: updater entered error state for %s: %s",
+                        self._device.name,
+                        msg,
+                    )
+                    return data  # caller checks __class to decide whether to abort
+
+                # Timeout guard
+                if loop.time() > deadline:
+                    _LOGGER.error(
+                        "Valetudo: Timed out after %ss waiting for %s "
+                        "(current: %s busy=%s)",
+                        timeout,
+                        target_states,
+                        cls,
+                        busy,
+                    )
+                    return None
+
+                step += 1
+                await asyncio.sleep(POLL_INTERVAL)
+
+        # ════════════════════════════════════════════════════════════════════
+        #  Main update flow
+        # ════════════════════════════════════════════════════════════════════
+        initial = await _get_state()
+        if initial is None:
+            _LOGGER.error(
+                "Valetudo: Cannot read updater state for %s — aborting",
+                self._device.name,
+            )
+            return
+
+        cls = initial.get("__class", "")
+        busy = initial.get("busy", False)
         _LOGGER.info(
-            f"Triggering Valetudo update for {self._device.name} to version {version} via {topic}"
+            "Valetudo: Starting update for %s (target: %s) — state: %s  busy: %s",
+            self._device.name,
+            version or "latest",
+            cls,
+            busy,
         )
 
-        await async_publish(self.hass, topic, "download")
+        # Signal HA that the update has started
+        self._attr_in_progress = True
+        self._attr_update_percentage = 0
+        self.async_write_ha_state()
+
+        try:
+            # ── Wait for any in-progress operation to settle ──────────────
+            if busy:
+                _LOGGER.info("Valetudo: Updater is busy (%s) — waiting to settle…", cls)
+                settled = await _poll_until(
+                    {S_IDLE, S_ERROR, S_AVAILABLE, S_DOWNLOADED, S_DOWNLOADING},
+                    timeout=TIMEOUT_DOWNLOAD,
+                    pct_start=0,
+                    pct_end=5,
+                )
+                if settled is None:
+                    return
+                cls = settled.get("__class", cls)
+
+            # ── Step 1: Check ─────────────────────────────────────────────
+            if cls in (S_IDLE, S_ERROR):
+                _LOGGER.info("Valetudo: Sending 'check' for %s…", self._device.name)
+                if not await _put_action("check", req_timeout=15):
+                    return
+                # Poll until check completes (fetches release info from GitHub)
+                settled = await _poll_until(
+                    {S_AVAILABLE, S_IDLE},
+                    timeout=TIMEOUT_CHECK,
+                    pct_start=5,
+                    pct_end=15,
+                )
+                if settled is None:
+                    return
+                cls = settled.get("__class", cls)
+                if cls != S_AVAILABLE:
+                    _LOGGER.warning(
+                        "Valetudo: No update available after check for %s "
+                        "(state: %s) — robot is already up to date.",
+                        self._device.name,
+                        cls,
+                    )
+                    return
+
+            self._attr_update_percentage = 15
+            self.async_write_ha_state()
+
+            # ── Step 2: Download ──────────────────────────────────────────
+            if cls in (S_AVAILABLE, S_APPROVAL_PENDING):
+                _LOGGER.info(
+                    "Valetudo: Update available/pending (%s) — sending 'download' for %s…",
+                    cls,
+                    self._device.name,
+                )
+                if not await _put_action("download", req_timeout=15):
+                    return
+                # Poll until download completes and reaches apply-pending/finalization/downloaded state
+                settled = await _poll_until(
+                    {S_APPLY_PENDING, S_FINALIZATION_PENDING, S_DOWNLOADED},
+                    timeout=TIMEOUT_DOWNLOAD,
+                    pct_start=20,
+                    pct_end=85,
+                )
+                if settled is None:
+                    return
+                cls = settled.get("__class", cls)
+                if cls == S_ERROR:
+                    return
+
+            elif cls == S_DOWNLOADING:
+                # Resume polling an already in-progress download
+                _LOGGER.info(
+                    "Valetudo: Download in progress for %s — waiting for completion…",
+                    self._device.name,
+                )
+                settled = await _poll_until(
+                    {S_APPLY_PENDING, S_FINALIZATION_PENDING, S_DOWNLOADED},
+                    timeout=TIMEOUT_DOWNLOAD,
+                    pct_start=20,
+                    pct_end=85,
+                )
+                if settled is None:
+                    return
+                cls = settled.get("__class", cls)
+                if cls == S_ERROR:
+                    return
+
+            self._attr_update_percentage = 85
+            self.async_write_ha_state()
+
+            # ── Step 3: Apply ─────────────────────────────────────────────
+            if cls in (
+                S_APPLY_PENDING,
+                S_FINALIZATION_PENDING,
+                S_DOWNLOADED,
+                S_APPLYING,
+            ):
+                if cls == S_APPLYING:
+                    self._attr_update_percentage = 100
+                    self.async_write_ha_state()
+                    _LOGGER.info(
+                        "Valetudo: %s is already applying the update.",
+                        self._device.name,
+                    )
+                    return
+
+                _LOGGER.info(
+                    "Valetudo: Sending 'apply' for %s (current state: %s)…",
+                    self._device.name,
+                    cls,
+                )
+                success = await _put_action("apply", req_timeout=TIMEOUT_APPLY)
+
+                if not success:
+                    _LOGGER.error(
+                        "Valetudo: 'apply' action was rejected for %s",
+                        self._device.name,
+                    )
+                    return
+
+                # Robot reboots after apply — connection drop is expected.
+                self._attr_update_percentage = 100
+                self.async_write_ha_state()
+                _LOGGER.info(
+                    "Valetudo: 'apply' accepted for %s — robot is rebooting into new firmware.",
+                    self._device.name,
+                )
+
+            else:
+                _LOGGER.warning(
+                    "Valetudo: Cannot send 'apply' for %s while in state '%s' — aborting.",
+                    self._device.name,
+                    cls,
+                )
+
+        finally:
+            # Always reset in_progress, regardless of how we exit
+            self._attr_in_progress = False
+            self.async_write_ha_state()

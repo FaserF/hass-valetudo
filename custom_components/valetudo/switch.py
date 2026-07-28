@@ -1,17 +1,18 @@
 import logging
 from typing import Any
+
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback, Event
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import (
     async_track_state_change_event,
 )
-from homeassistant.components import mqtt
 
 from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_AUGMENTATIONS
+from .device_utils import _do_valetudo_put
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -144,11 +145,7 @@ class ValetudoCarpetBoostSwitch(SwitchEntity):
             "identifiers": device.identifiers,
         }
         self._attr_is_on: bool | None = None
-        self._mqtt_identifier = None
-        for identifier in device.identifiers:
-            if identifier[0] == "mqtt":
-                self._mqtt_identifier = identifier[1]
-                break
+        self._device_id = device.id
 
     async def async_added_to_hass(self) -> None:
         self.async_on_remove(
@@ -185,11 +182,12 @@ class ValetudoCarpetBoostSwitch(SwitchEntity):
         await self._send_command("OFF")
 
     async def _send_command(self, command: str):
-        if not self._mqtt_identifier:
-            return
-        topic = (
-            f"valetudo/{self._mqtt_identifier}/CarpetModeControlCapability/enabled/set"
+        action = "enable" if command == "ON" else "disable"
+        await _do_valetudo_put(
+            self.hass,
+            self._device_id,
+            "/api/v2/robot/capabilities/CarpetModeControlCapability",
+            {"action": action},
         )
-        await mqtt.async_publish(self.hass, topic, command)
         self._attr_is_on = command == "ON"
         self.async_write_ha_state()

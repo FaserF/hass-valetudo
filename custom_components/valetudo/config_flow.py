@@ -5,7 +5,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.helpers.service_info.mqtt import MqttServiceInfo
 
-from .const import DOMAIN, CONF_ENTRY_TYPE, ENTRY_TYPE_ICONS, ENTRY_TYPE_AUGMENTATIONS
+from .const import CONF_ENTRY_TYPE, DOMAIN, ENTRY_TYPE_AUGMENTATIONS, ENTRY_TYPE_ICONS
 
 
 class FlowHandler(ConfigFlow, domain=DOMAIN):  # type: ignore
@@ -74,7 +74,7 @@ class FlowHandler(ConfigFlow, domain=DOMAIN):  # type: ignore
             # We can now offer to set up the augmentations
             return await self.async_step_confirm_discovery()
 
-        except Exception:
+        except Exception:  # noqa: BLE001
             return self.async_abort(reason="invalid_discovery_info")
 
     async def async_step_confirm_discovery(

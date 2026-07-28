@@ -83,7 +83,7 @@ async def async_get_config_entry_diagnostics(
         import homeassistant as _ha
 
         ha_version = _ha.__version__
-    except Exception:
+    except Exception:  # noqa: BLE001
         ha_version = "unknown"
 
     return {

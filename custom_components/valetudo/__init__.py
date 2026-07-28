@@ -2,19 +2,20 @@ import logging
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_call_later
 
 from .const import (
-    DOMAIN,
     CONF_ENTRY_TYPE,
-    ENTRY_TYPE_ICONS,
+    DOMAIN,
     ENTRY_TYPE_AUGMENTATIONS,
+    ENTRY_TYPE_ICONS,
     PLATFORMS,
 )
 from .custom_icons import async_setup_icons
-from .services import async_setup_services
 from .device_utils import async_enrich_registry, setup_merge_maintenance
+from .services import async_setup_services
 
 _LOGGER = logging.getLogger(__name__)
 
