@@ -229,7 +229,10 @@ class ValetudoUpdateEntity(UpdateEntity, RestoreEntity):
         _LOGGER.debug(f"Updating Valetudo version for {self.unique_id}")
         try:
             session = async_get_clientsession(self.hass)
-            headers = {"User-Agent": "HomeAssistant-Valetudo-Integration"}
+            headers = {
+                "User-Agent": "HomeAssistant-Valetudo-Integration",
+                "Accept": "application/vnd.github.v3+json",
+            }
             async with session.get(
                 VALETUDO_LATEST_RELEASE_API,
                 headers=headers,
@@ -246,6 +249,10 @@ class ValetudoUpdateEntity(UpdateEntity, RestoreEntity):
                         )
                     else:
                         _LOGGER.warning("GitHub API returned 200 but no tag_name found")
+                elif response.status == 403:
+                    _LOGGER.info(
+                        "GitHub API rate limit hit (HTTP 403) while fetching Valetudo release info; cached version will be used."
+                    )
                 else:
                     _LOGGER.warning(
                         f"Failed to fetch Valetudo version from GitHub: {response.status}"
@@ -536,7 +543,7 @@ class ValetudoUpdateEntity(UpdateEntity, RestoreEntity):
                     return
                 # Poll until check completes (fetches release info from GitHub)
                 settled = await _poll_until(
-                    {S_AVAILABLE, S_IDLE},
+                    {S_AVAILABLE, S_APPROVAL_PENDING, S_IDLE},
                     timeout=TIMEOUT_CHECK,
                     pct_start=5,
                     pct_end=15,
@@ -544,7 +551,7 @@ class ValetudoUpdateEntity(UpdateEntity, RestoreEntity):
                 if settled is None:
                     return
                 cls = settled.get("__class", cls)
-                if cls != S_AVAILABLE:
+                if cls not in (S_AVAILABLE, S_APPROVAL_PENDING):
                     _LOGGER.warning(
                         "Valetudo: No update available after check for %s "
                         "(state: %s) — robot is already up to date.",
