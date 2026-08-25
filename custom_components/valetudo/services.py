@@ -78,7 +78,7 @@ async def async_register_extract_map_service(hass: HomeAssistant):
             raise ServiceValidationError(
                 f"Failed to fetch image from entity '{target_entity_id}'. "
                 f"Ensure it is a valid camera. Error: {e!s}"
-            )
+            ) from e
 
         try:
             map_data = await hass.async_add_executor_job(
@@ -86,7 +86,7 @@ async def async_register_extract_map_service(hass: HomeAssistant):
             )
         except Exception as e:  # noqa: BLE001
             _LOGGER.error(f"Error parsing map data: {e}")
-            raise ServiceValidationError(f"Error parsing map data: {e}")
+            raise ServiceValidationError(f"Error parsing map data: {e}") from e
 
         if not map_data:
             raise ServiceValidationError(

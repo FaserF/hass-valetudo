@@ -257,7 +257,7 @@ class ValetudoUpdateEntity(UpdateEntity, RestoreEntity):
                     _LOGGER.warning(
                         f"Failed to fetch Valetudo version from GitHub: {response.status}"
                     )
-        except (asyncio.TimeoutError, aiohttp.ClientError) as err:
+        except (TimeoutError, aiohttp.ClientError) as err:
             _LOGGER.warning(
                 f"Could not fetch Valetudo version from GitHub (network/timeout): {err}"
             )
@@ -358,7 +358,7 @@ class ValetudoUpdateEntity(UpdateEntity, RestoreEntity):
                         resp.status,
                         body,
                     )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 _LOGGER.warning(
                     "Valetudo: Timeout reading updater state for %s",
                     self._device.name,
@@ -396,7 +396,7 @@ class ValetudoUpdateEntity(UpdateEntity, RestoreEntity):
                         body,
                     )
                     return False
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 _LOGGER.error(
                     "Valetudo: Timeout sending action '%s' for %s",
                     action,
