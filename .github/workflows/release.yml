@@ -1,4 +1,4 @@
----
+﻿---
 name: Release
 
 on:
@@ -64,7 +64,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.14.7"
+          python-version: '3.14'
 
       - name: Calculate Version and Release Details
         id: get_version
@@ -100,7 +100,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.14.7"
+          python-version: '3.14'
 
       - name: Configure Git and pull latest
         run: |
@@ -206,8 +206,13 @@ jobs:
 
       - name: 📦 Zip Component
         run: |
-          cd custom_components/valetudo
-          zip -r ../../valetudo.zip .
+          DOMAIN=$(python -c "import json, glob; print(json.load(open(glob.glob('custom_components/*/manifest.json')[0]))['domain'])")
+          cd "custom_components/$DOMAIN"
+          zip -r "../../$DOMAIN.zip" .
+          cd ../..
+          mv "$DOMAIN.zip" integration.zip || true
+          # Keep domain-named zip for backward compatibility
+          cp integration.zip "$DOMAIN.zip" 2>/dev/null || true
 
       - name: Download Release Body Artifact
         uses: actions/download-artifact@v8
@@ -223,6 +228,7 @@ jobs:
           IS_PRERELEASE: ${{ needs.versioning.outputs.is_prerelease }}
         shell: bash
         run: |
+          DOMAIN=$(python -c "import json, glob; print(json.load(open(glob.glob('custom_components/*/manifest.json')[0]))['domain'])")
           prerelease_arg=""
           if [ "$IS_PRERELEASE" = "true" ]; then
             prerelease_arg="--prerelease"
@@ -234,14 +240,14 @@ jobs:
               --notes-file "release_body.md" \
               --draft=false \
               $prerelease_arg
-            gh release upload "$TAG" valetudo.zip --clobber
+            gh release upload "$TAG" "$DOMAIN.zip" --clobber
           else
             gh release create "$TAG" \
               --target "${{ github.ref_name }}" \
               --title "Release $VERSION" \
               --notes-file "release_body.md" \
               $prerelease_arg \
-              valetudo.zip
+              "$DOMAIN.zip"
           fi
 
  
