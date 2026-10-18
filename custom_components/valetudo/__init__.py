@@ -38,7 +38,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             dev_reg = dr.async_get(hass)
             ent_reg = er.async_get(hass)
 
-            for device in dev_reg.devices:
+            for device in list(dev_reg.devices.values()):
                 if device.manufacturer != "Valetudo":
                     continue
 

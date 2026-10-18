@@ -45,7 +45,7 @@ async def async_enrich_registry(
             conflicting_device = next(
                 (
                     d
-                    for d in dev_reg.devices.values()
+                    for d in list(dev_reg.devices.values())
                     if d.id != device_id
                     and any(
                         c[0] == dr.CONNECTION_NETWORK_MAC

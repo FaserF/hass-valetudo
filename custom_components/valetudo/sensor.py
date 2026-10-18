@@ -97,7 +97,7 @@ class ValetudoSensorManager:
 
     def _scan_existing_devices(self):
         dev_reg = dr.async_get(self.hass)
-        for device in dev_reg.devices.values():
+        for device in list(dev_reg.devices.values()):
             if device.manufacturer == "Valetudo":
                 self._try_add_sensors(device.id)
 

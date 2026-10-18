@@ -91,7 +91,7 @@ class ValetudoUpdateManager:
 
     def _scan_existing_devices(self):
         dev_reg = dr.async_get(self.hass)
-        for device in dev_reg.devices.values():
+        for device in list(dev_reg.devices.values()):
             if device.manufacturer == "Valetudo":
                 self._try_add_entities(device.id)
 
@@ -325,7 +325,9 @@ class ValetudoUpdateEntity(UpdateEntity, RestoreEntity):
         # ── Timeouts ─────────────────────────────────────────────────────────
         POLL_INTERVAL = 3  # seconds between state polls
         TIMEOUT_CHECK = 45  # seconds to wait for 'check' to complete
-        TIMEOUT_DOWNLOAD = 300  # seconds to wait for download (up to 5 min)
+        TIMEOUT_DOWNLOAD = (
+            1800  # seconds to wait for download (up to 30 min for slow robot downloads)
+        )
         TIMEOUT_APPLY = 30  # seconds for apply HTTP request
 
         # ── Resolve robot IP ─────────────────────────────────────────────────
@@ -458,14 +460,31 @@ class ValetudoUpdateEntity(UpdateEntity, RestoreEntity):
                 cls = data.get("__class", "")
                 busy = data.get("busy", False)
 
-                # Animate progress smoothly
-                fraction = min(step / max_steps, 1.0)
-                pct = int(pct_start + fraction * (pct_end - pct_start))
+                # Animate or report actual progress
+                meta = data.get("metaData") or {}
+                real_progress = meta.get("progress")
+                if isinstance(real_progress, (int, float)):
+                    # Scale real progress (0-100) across the allocated window
+                    pct = int(
+                        pct_start + (real_progress / 100.0) * (pct_end - pct_start)
+                    )
+                    # Reset deadline if download is actively making progress
+                    deadline = loop.time() + timeout
+                else:
+                    fraction = min(step / max_steps, 1.0)
+                    pct = int(pct_start + fraction * (pct_end - pct_start))
+
                 if self._attr_update_percentage != pct:
                     self._attr_update_percentage = pct
                     self.async_write_ha_state()
 
-                _LOGGER.debug("Valetudo: state=%s busy=%s pct=%s%%", cls, busy, pct)
+                _LOGGER.debug(
+                    "Valetudo: state=%s busy=%s pct=%s%% (robot_progress=%s)",
+                    cls,
+                    busy,
+                    pct,
+                    real_progress,
+                )
 
                 # Reached a desired state and no longer busy → done
                 if cls in target_states and not busy:

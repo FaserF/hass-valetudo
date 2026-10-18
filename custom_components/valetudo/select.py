@@ -100,7 +100,7 @@ class ValetudoSelectManager:
 
     def _scan_existing_devices(self):
         dev_reg = dr.async_get(self.hass)
-        for device in dev_reg.devices:
+        for device in list(dev_reg.devices.values()):
             if device.manufacturer == "Valetudo":
                 self._try_add_selects(device.id)
 

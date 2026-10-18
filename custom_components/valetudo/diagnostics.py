@@ -49,7 +49,7 @@ async def async_get_config_entry_diagnostics(
 
     # All Valetudo devices
     all_valetudo_devices = []
-    for dev in dev_reg.devices.values():
+    for dev in list(dev_reg.devices.values()):
         if dev.manufacturer == "Valetudo" or any(
             ident[0] == DOMAIN for ident in dev.identifiers
         ):
