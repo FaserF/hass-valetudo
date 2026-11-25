@@ -14,7 +14,7 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import CONF_ENTRY_TYPE, DOMAIN, ENTRY_TYPE_AUGMENTATIONS
-from .device_utils import _do_valetudo_put
+from .device_utils import _do_valetudo_put, iter_devices
 from .map_utils import extract_map_from_image
 
 _LOGGER = logging.getLogger(__name__)
@@ -100,7 +100,7 @@ class ValetudoSelectManager:
 
     def _scan_existing_devices(self):
         dev_reg = dr.async_get(self.hass)
-        for device in list(dev_reg.devices.values()):
+        for device in iter_devices(dev_reg):
             if device.manufacturer == "Valetudo":
                 self._try_add_selects(device.id)
 

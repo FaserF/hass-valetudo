@@ -26,7 +26,7 @@ from .const import (
     VALETUDO_LATEST_RELEASE_API,
     VALETUDO_RELEASES_URL,
 )
-from .device_utils import _resolve_network_identity
+from .device_utils import _resolve_network_identity, iter_devices
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ class ValetudoUpdateManager:
 
     def _scan_existing_devices(self):
         dev_reg = dr.async_get(self.hass)
-        for device in list(dev_reg.devices.values()):
+        for device in iter_devices(dev_reg):
             if device.manufacturer == "Valetudo":
                 self._try_add_entities(device.id)
 

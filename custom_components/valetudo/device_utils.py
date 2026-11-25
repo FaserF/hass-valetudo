@@ -13,6 +13,18 @@ _LOGGER = logging.getLogger(__name__)
 MAC_REGEX = re.compile(r"([0-9a-fA-F]{2}[:.\-]?){5}[0-9a-fA-F]{2}")
 
 
+def iter_devices(dev_reg: dr.DeviceRegistry) -> list[dr.DeviceEntry]:
+    """Return a snapshot list of registered devices without using mapping .values()."""
+    snapshot: list[dr.DeviceEntry] = []
+    for item in list(dev_reg.devices):
+        if isinstance(item, str):
+            if (device := dev_reg.async_get(item)) is not None:
+                snapshot.append(device)
+        else:
+            snapshot.append(item)
+    return snapshot
+
+
 async def async_enrich_registry(
     hass: HomeAssistant, config_entry_id: str, device_id: str, vacuum_entity_id: str
 ) -> list[str]:
@@ -45,7 +57,7 @@ async def async_enrich_registry(
             conflicting_device = next(
                 (
                     d
-                    for d in list(dev_reg.devices.values())
+                    for d in iter_devices(dev_reg)
                     if d.id != device_id
                     and any(
                         c[0] == dr.CONNECTION_NETWORK_MAC

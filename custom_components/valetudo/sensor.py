@@ -22,6 +22,7 @@ from homeassistant.helpers.event import (
 )
 
 from .const import CONF_ENTRY_TYPE, DOMAIN, ENTRY_TYPE_AUGMENTATIONS
+from .device_utils import iter_devices
 from .map_utils import approximate_segment, extract_map_from_image, unpack_pixels
 
 _LOGGER = logging.getLogger(__name__)
@@ -97,7 +98,7 @@ class ValetudoSensorManager:
 
     def _scan_existing_devices(self):
         dev_reg = dr.async_get(self.hass)
-        for device in list(dev_reg.devices.values()):
+        for device in iter_devices(dev_reg):
             if device.manufacturer == "Valetudo":
                 self._try_add_sensors(device.id)
 

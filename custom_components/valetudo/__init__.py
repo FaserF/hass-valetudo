@@ -14,7 +14,7 @@ from .const import (
     PLATFORMS,
 )
 from .custom_icons import async_setup_icons
-from .device_utils import async_enrich_registry, setup_merge_maintenance
+from .device_utils import async_enrich_registry, iter_devices, setup_merge_maintenance
 from .services import async_setup_services
 
 _LOGGER = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             dev_reg = dr.async_get(hass)
             ent_reg = er.async_get(hass)
 
-            for device in list(dev_reg.devices.values()):
+            for device in iter_devices(dev_reg):
                 if device.manufacturer != "Valetudo":
                     continue
 

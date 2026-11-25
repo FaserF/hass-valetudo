@@ -11,6 +11,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
 from .const import DOMAIN
+from .device_utils import iter_devices
 
 REDACT_KEYS = {"api_key", "password", "token", "access_token"}
 
@@ -49,7 +50,7 @@ async def async_get_config_entry_diagnostics(
 
     # All Valetudo devices
     all_valetudo_devices = []
-    for dev in list(dev_reg.devices.values()):
+    for dev in iter_devices(dev_reg):
         if dev.manufacturer == "Valetudo" or any(
             ident[0] == DOMAIN for ident in dev.identifiers
         ):
